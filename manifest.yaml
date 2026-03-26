@@ -1,0 +1,41 @@
+project: apple-health-sync
+phase: active-development
+started: 2026-03-25
+last_active: 2026-03-26
+
+ledger_refs:
+  - lesson-ios-001          # XcodeGen before manual pbxproj edits
+  - lesson-ios-002          # .xcodeproj must be committed to git
+
+probation_lessons:
+  - lesson-2026-03-26-001  # LabeledContent iOS 16+ (resolved: iOS 20→26.3)
+  - lesson-2026-03-26-006  # .xcodeproj gitignore (resolved)
+  - lesson-2026-03-26-008  # Write tool false success (ongoing)
+
+open_issues:
+  - Write/edit tool silently fails — files deleted/damaged
+  - TestFlight setup pending
+
+next_steps:
+  - Test HealthKit data sync on physical device
+  - Verify Firestore writes from device
+  - Set up Background App Refresh testing
+  - TestFlight deployment
+
+completed_steps:
+  - Firebase project created + Firestore enabled
+  - iOS app scaffolded with XcodeGen + SPM
+  - HealthKit manager with steps, sleep, weight, nutrition, workouts, resting HR
+  - App builds successfully on simulator
+  - App running on Kirt's MacBook simulator
+  - App running on physical iPhone ✅ (2026-03-26)
+
+breakthroughs:
+  - br-2026-03-26-001  # XcodeGen works
+  - br-2026-03-26-002  # GitHub multi-machine workflow working
+  - br-2026-03-26-003  # Physical iPhone build working (dev mode + restart)
+  - br-2026-03-26-004  # Xcode 26 deployment target must be set manually in UI
+
+total_build_attempts: 7
+total_build_failures_resolved: 6
+total_sessions: 5
