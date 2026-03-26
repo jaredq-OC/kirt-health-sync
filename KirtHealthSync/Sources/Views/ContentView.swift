@@ -8,17 +8,17 @@ struct ContentView: View {
         NavigationView {
             List {
                 Section(header: Text("Today's Summary")) {
-                    LabeledContent("Steps", value: "\(viewModel.todaySteps)")
-                    LabeledContent("Sleep", value: "\(viewModel.todaySleepMinutes) min")
-                    LabeledContent("Weight", value: String(format: "%.1f lb", viewModel.latestWeight))
-                    LabeledContent("Resting HR", value: "\(viewModel.latestRestingHR) bpm")
+                    HStack { Text("Steps"); Spacer(); Text("\(viewModel.todaySteps)").foregroundColor(.secondary) }
+                    HStack { Text("Sleep"); Spacer(); Text("\(viewModel.todaySleepMinutes) min").foregroundColor(.secondary) }
+                    HStack { Text("Weight"); Spacer(); Text(String(format: "%.1f lb", viewModel.latestWeight)).foregroundColor(.secondary) }
+                    HStack { Text("Resting HR"); Spacer(); Text("\(viewModel.latestRestingHR) bpm").foregroundColor(.secondary) }
                 }
 
                 Section(header: Text("Nutrition")) {
-                    LabeledContent("Calories", value: String(format: "%.0f kcal", viewModel.nutritionData.calories))
-                    LabeledContent("Protein", value: String(format: "%.1f g", viewModel.nutritionData.protein))
-                    LabeledContent("Carbs", value: String(format: "%.1f g", viewModel.nutritionData.carbs))
-                    LabeledContent("Fat", value: String(format: "%.1f g", viewModel.nutritionData.fat))
+                    HStack { Text("Calories"); Spacer(); Text(String(format: "%.0f kcal", viewModel.nutritionData.calories)).foregroundColor(.secondary) }
+                    HStack { Text("Protein"); Spacer(); Text(String(format: "%.1f g", viewModel.nutritionData.protein)).foregroundColor(.secondary) }
+                    HStack { Text("Carbs"); Spacer(); Text(String(format: "%.1f g", viewModel.nutritionData.carbs)).foregroundColor(.secondary) }
+                    HStack { Text("Fat"); Spacer(); Text(String(format: "%.1f g", viewModel.nutritionData.fat)).foregroundColor(.secondary) }
                 }
 
                 Section(header: Text("Last Sync")) {
