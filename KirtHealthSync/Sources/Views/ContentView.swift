@@ -1,5 +1,5 @@
 import SwiftUI
-import HealthKit
+import FirebaseFirestore
 
 struct ContentView: View {
     @StateObject private var viewModel = HealthDataViewModel()
@@ -14,12 +14,20 @@ struct ContentView: View {
                     LabeledContent("Resting HR", value: "\(viewModel.latestRestingHR) bpm")
                 }
 
+                Section(header: Text("Nutrition")) {
+                    LabeledContent("Calories", value: String(format: "%.0f kcal", viewModel.nutritionData.calories))
+                    LabeledContent("Protein", value: String(format: "%.1f g", viewModel.nutritionData.protein))
+                    LabeledContent("Carbs", value: String(format: "%.1f g", viewModel.nutritionData.carbs))
+                    LabeledContent("Fat", value: String(format: "%.1f g", viewModel.nutritionData.fat))
+                }
+
                 Section(header: Text("Last Sync")) {
                     Text(viewModel.lastSyncTime)
                         .foregroundColor(.secondary)
                     Button("Sync Now") {
                         viewModel.syncNow()
                     }
+                    .disabled(viewModel.isLoading)
                 }
 
                 Section(header: Text("Recent Workouts")) {
@@ -27,7 +35,7 @@ struct ContentView: View {
                         Text("No workouts logged")
                             .foregroundColor(.secondary)
                     } else {
-                        ForEach(viewModel.recentWorkouts.prefix(5), id: \.self) { workout in
+                        ForEach(viewModel.recentWorkouts) { workout in
                             VStack(alignment: .leading) {
                                 Text(workout.activityType)
                                     .font(.headline)
@@ -55,45 +63,75 @@ class HealthDataViewModel: ObservableObject {
     @Published var latestRestingHR: Int = 0
     @Published var lastSyncTime: String = "Never"
     @Published var recentWorkouts: [WorkoutItem] = []
+    @Published var nutritionData: NutritionData = NutritionData()
     @Published var isLoading: Bool = false
 
-    func loadData() {
-        // Load from Firestore
-        let db = Firestore.firestore()
+    private let db = Firestore.firestore()
 
-        // Get today's steps
+    func loadData() {
         let today = Calendar.current.startOfDay(for: Date())
+        let todayTimestamp = Timestamp(date: today)
+
         db.collection("healthData")
-            .whereField("timestamp", isGreaterThan: Timestamp(date: today))
+            .whereField("timestamp", isGreaterThan: todayTimestamp)
             .order(by: "timestamp", descending: true)
-            .getDocuments { snapshot, error in
+            .getDocuments { [weak self] snapshot, error in
+                guard let self = self else { return }
                 if let docs = snapshot?.documents {
                     for doc in docs {
                         let data = doc.data()
-                        if let value = data["value"] as? Int, doc.documentID.hasPrefix("steps") {
-                            DispatchQueue.main.async {
-                                self.todaySteps = value
+                        let docId = doc.documentID
+
+                        if docId.hasPrefix("steps"), let value = data["value"] as? Int {
+                            Task { @MainActor in self.todaySteps = value }
+                        } else if docId.hasPrefix("sleep"), let total = data["totalMinutes"] as? Double {
+                            Task { @MainActor in self.todaySleepMinutes = Int(total) }
+                        } else if docId.hasPrefix("weight"), let value = data["value"] as? Double {
+                            Task { @MainActor in self.latestWeight = value }
+                        } else if docId.hasPrefix("restingHR"), let value = data["value"] as? Double {
+                            Task { @MainActor in self.latestRestingHR = Int(value) }
+                        } else if docId.hasPrefix("nutrition"), let nutrients = data["nutrients"] as? [String: Any] {
+                            Task { @MainActor in
+                                self.nutritionData = NutritionData(
+                                    calories: nutrients["dietaryEnergyConsumed"] as? Double ?? 0,
+                                    protein: nutrients["dietaryProtein"] as? Double ?? 0,
+                                    carbs: nutrients["dietaryCarbohydrates"] as? Double ?? 0,
+                                    fat: nutrients["dietaryFatTotal"] as? Double ?? 0
+                                )
+                            }
+                        } else if docId.hasPrefix("workout") {
+                            if let activity = data["activityType"] as? String,
+                               let duration = data["duration"] as? Double,
+                               let energy = data["energyBurned"] as? Double {
+                                let workout = WorkoutItem(
+                                    activityType: activity,
+                                    duration: duration,
+                                    energyBurned: energy
+                                )
+                                Task { @MainActor in
+                                    if !self.recentWorkouts.contains(where: { $0.id == workout.id }) {
+                                        self.recentWorkouts.append(workout)
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
 
-        // Update last sync time
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        DispatchQueue.main.async {
-            self.lastSyncTime = formatter.string(from: Date())
-        }
+                let formatter = DateFormatter()
+                formatter.dateStyle = .short
+                formatter.timeStyle = .short
+                Task { @MainActor in self.lastSyncTime = formatter.string(from: Date()) }
+            }
     }
 
     func syncNow() {
         isLoading = true
-        HealthKitManager.shared.syncHealthData { success in
-            DispatchQueue.main.async {
-                self.isLoading = false
-                self.loadData()
+        HealthKitManager.shared.syncHealthData { [weak self] _ in
+            Task { @MainActor in
+                self?.isLoading = false
+                self?.recentWorkouts.removeAll()
+                self?.loadData()
             }
         }
     }
@@ -106,13 +144,9 @@ struct WorkoutItem: Identifiable {
     let energyBurned: Double
 }
 
-// Extension to make HKWorkout conform to Identifiable for SwiftUI
-extension HKWorkout {
-    var workoutItem: WorkoutItem {
-        WorkoutItem(
-            activityType: self.workoutActivityType.name,
-            duration: self.duration,
-            energyBurned: self.energyBurned?.doubleValue(for: .kilocalorie()) ?? 0
-        )
-    }
+struct NutritionData {
+    var calories: Double = 0
+    var protein: Double = 0
+    var carbs: Double = 0
+    var fat: Double = 0
 }

@@ -15,9 +15,14 @@
 		A1000006 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A2000006 /* GoogleService-Info.plist */; };
 		A1000007 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A2000007 /* LaunchScreen.storyboard */; };
 		A1000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000008 /* Assets.xcassets */; };
-		A1000009 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000007 /* UIKit.framework */; };
-		A100000A /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000008 /* HealthKit.framework */; };
-		A100000B /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000A /* libz.tbd */; };
+		A1000009 /* KirtHealthSync.entitlements in Resources */ = {isa = PBXBuildFile; fileRef = A200000A /* KirtHealthSync.entitlements */; };
+		A100000B /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000007 /* UIKit.framework */; };
+		A100000C /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000008 /* HealthKit.framework */; };
+		A100000D /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000A /* libz.tbd */; };
+		A100000E /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000B /* FirebaseFirestore */; };
+		A100000F /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000C /* FirebaseAuth */; };
+		A1000010 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000D /* FirebaseAnalytics */; };
+		A1000011 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000E /* BackgroundTasks.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +35,7 @@
 		A2000007 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A2000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000009 /* KirtHealthSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KirtHealthSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000A /* KirtHealthSync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = KirtHealthSync.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,9 +43,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1000009 /* UIKit.framework in Frameworks */,
-				A100000A /* HealthKit.framework in Frameworks */,
-				A100000B /* libz.tbd in Frameworks */,
+				A100000B /* UIKit.framework in Frameworks */,
+				A100000C /* HealthKit.framework in Frameworks */,
+				A100000D /* libz.tbd in Frameworks */,
+				A100000E /* FirebaseFirestore in Frameworks */,
+				A100000F /* FirebaseAuth in Frameworks */,
+				A1000010 /* FirebaseAnalytics in Frameworks */,
+				A1000011 /* BackgroundTasks.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,7 +80,7 @@
 				A2000009 /* KirtHealthSync.app */,
 			);
 			name = Products;
-			sourceTree = "<group>";
+			sourceTree = BUILT_PRODUCTS_DIR;
 		};
 		A4000004 /* Frameworks */ = {
 			isa = PBXGroup;
@@ -78,6 +88,10 @@
 				A4000007 /* UIKit.framework */,
 				A4000008 /* HealthKit.framework */,
 				A4000009 /* CoreData.framework */,
+				A400000E /* BackgroundTasks.framework */,
+				A400000B /* FirebaseFirestore */,
+				A400000C /* FirebaseAuth */,
+				A400000D /* FirebaseAnalytics */,
 			);
 			name = Frameworks;
 			sourceTree = SDKROOT;
@@ -100,6 +114,7 @@
 				A2000006 /* GoogleService-Info.plist */,
 				A2000007 /* LaunchScreen.storyboard */,
 				A2000008 /* Assets.xcassets */,
+				A200000A /* KirtHealthSync.entitlements */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -139,8 +154,8 @@
 					};
 				};
 			};
-			buildConfigurationList = A6000001 /* Build configuration list for PBXProject "KirtHealthSync" */;
-			compatibilityVersion = "Xcode 14.0";
+			buildConfigurationList = A6000001 /* Build configuration list for PBXProject "PBXProject" */;
+			compatibilityVersion = "Xcode 16.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -167,6 +182,7 @@
 				A1000006 /* GoogleService-Info.plist in Resources */,
 				A1000007 /* LaunchScreen.storyboard in Resources */,
 				A1000008 /* Assets.xcassets in Resources */,
+				A1000009 /* KirtHealthSync.entitlements in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -185,6 +201,35 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A7000001 /* FirebaseFirestore */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 10.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A7000002 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A7000001 /* FirebaseFirestore */;
+			product = "FirebaseFirestore";
+		};
+		A7000003 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A7000001 /* FirebaseFirestore */;
+			product = "FirebaseAuth";
+		};
+		A7000004 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A7000001 /* FirebaseFirestore */;
+			product = "FirebaseAnalytics";
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A6000002 /* Debug */ = {
@@ -236,7 +281,6 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				Mach_O_Type = MH_EXECUTE;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
@@ -289,7 +333,6 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -302,6 +345,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_ENTITLEMENTS = KirtHealthSync/Resources/KirtHealthSync.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -332,6 +376,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_ENTITLEMENTS = KirtHealthSync/Resources/KirtHealthSync.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -360,7 +405,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A6000001 /* Build configuration list for PBXProject "KirtHealthSync" */ = {
+		A6000001 /* Build configuration list for PBXProject "PBXProject" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A6000002 /* Debug */,
