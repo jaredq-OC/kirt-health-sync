@@ -1,8 +1,8 @@
 name: KirtHealthSync
 options:
   bundleIdPrefix: com.kirt
-  deploymentTarget:
-    iOS: "15.0"
+  deployment:
+    iOS: "20.0"
   xcodeVersion: "16.0"
   createIntermediateGroups: true
 
