@@ -20,6 +20,8 @@ class HealthKitManager {
         HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
         HKObjectType.quantityType(forIdentifier: .walkingHeartRateAverage)!,
         HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
+        HKObjectType.quantityType(forIdentifier: .cardioFitnessLevel)!,
+        HKObjectType.categoryType(forIdentifier: .mindfulnessSession)!,
         HKObjectType.workoutType(),
         HKObjectType.quantityType(forIdentifier: .dietaryEnergyConsumed)!,
         HKObjectType.quantityType(forIdentifier: .dietaryProtein)!,
@@ -63,10 +65,6 @@ class HealthKitManager {
         syncHealthData()
 
         // Schedule recurring background fetch every 15 minutes
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundTaskIdentifier, using: nil) { task in
-            self.handleBackgroundTask(task: task as! BGProcessingTask)
-        }
-
         scheduleBackgroundTask()
     }
 
@@ -99,7 +97,85 @@ class HealthKitManager {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundTaskIdentifier, using: nil) { task in
             self.handleBackgroundTask(task: task as! BGProcessingTask)
         }
+    }    // MARK: - Cardio Fitness
+
+    private func syncCardioFitness(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
+        guard let fitnessType = HKObjectType.quantityType(forIdentifier: .cardioFitnessLevel) else {
+            completion(nil, nil)
+            return
+        }
+
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let query = HKSampleQuery(sampleType: fitnessType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
+            if let error = error {
+                completion(nil, error)
+                return
+            }
+
+            guard let fitnessSample = results?.first as? HKQuantitySample else {
+                completion(nil, nil)
+                return
+            }
+
+            let vo2 = fitnessSample.quantity.doubleValue(for: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)))
+
+            let data: [String: Any] = [
+                "value": vo2,
+                "unit": "ml/(kg.min)",
+                "startDate": ISO8601DateFormatter().string(from: fitnessSample.startDate),
+                "timestamp": FieldValue.serverTimestamp()
+            ]
+
+            self.db.collection("healthData").document("cardio_\(Int(fitnessSample.startDate.timeIntervalSince1970))").setData(data) { error in
+                completion(error == nil ? String(format: "%.1f VO2", vo2) : nil, error)
+            }
+        }
+
+        healthStore.execute(query)
     }
+
+    private func syncMindfulness(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
+        guard let mindType = HKObjectType.categoryType(forIdentifier: .mindfulnessSession) else {
+            completion(nil, nil)
+            return
+        }
+
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let query = HKSampleQuery(sampleType: mindType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sortDescriptor]) { _, results, error in
+            if let error = error {
+                completion(nil, error)
+                return
+            }
+
+            guard let samples = results as? [HKCategorySample], !samples.isEmpty else {
+                completion(nil, nil)
+                return
+            }
+
+            let totalMinutes = samples.reduce(0.0) { total, sample in
+                total + sample.endDate.timeIntervalSince(sample.startDate) / 60.0
+            }
+
+            let data: [String: Any] = [
+                "value": totalMinutes,
+                "unit": "minutes",
+                "sessionCount": samples.count,
+                "startDate": ISO8601DateFormatter().string(from: samples.first!.startDate),
+                "endDate": ISO8601DateFormatter().string(from: samples.last!.endDate),
+                "timestamp": FieldValue.serverTimestamp()
+            ]
+
+            self.db.collection("healthData").document("mindfulness_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
+                completion(error == nil ? "\(Int(totalMinutes)) min" : nil, error)
+            }
+        }
+
+        healthStore.execute(query)
+    }
+
+
 
     // MARK: - Data Sync
 
@@ -115,6 +191,8 @@ class HealthKitManager {
             ("workouts", syncWorkouts),
             ("nutrition", syncNutrition),
             ("heartRate", syncRestingHeartRate),
+            ("cardioFitness", syncCardioFitness),
+            ("mindfulness", syncMindfulness),
         ]
 
         for (name, syncFunc) in dataTypes {
