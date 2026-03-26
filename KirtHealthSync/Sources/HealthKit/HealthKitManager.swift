@@ -16,7 +16,6 @@ class HealthKitManager {
         HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!,
         HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)!,
         HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning)!,
-        HKObjectType.quantityType(forIdentifier: .distanceRunning)!,
         HKObjectType.quantityType(forIdentifier: .distanceSwimming)!,
         HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount)!,
         HKObjectType.quantityType(forIdentifier: .vo2Max)!,
@@ -31,12 +30,9 @@ class HealthKitManager {
         HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
         HKObjectType.quantityType(forIdentifier: .walkingHeartRateAverage)!,
         HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
-        HKObjectType.quantityType(forIdentifier: .cardioFitnessLevel)!,
-        HKObjectType.categoryType(forIdentifier: .electrocardiogram)!,
         HKObjectType.workoutType(),
         // Sleep
         HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
-        HKObjectType.categoryType(forIdentifier: .mindfulnessSession)!,
         // Vitals
         HKObjectType.quantityType(forIdentifier: .respiratoryRate)!,
         HKObjectType.quantityType(forIdentifier: .bloodGlucose)!,
@@ -126,81 +122,7 @@ class HealthKitManager {
         }
     }    // MARK: - Cardio Fitness
 
-    private func syncCardioFitness(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let fitnessType = HKObjectType.quantityType(forIdentifier: .cardioFitnessLevel) else {
-            completion(nil, nil)
-            return
-        }
 
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: fitnessType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error {
-                completion(nil, error)
-                return
-            }
-
-            guard let fitnessSample = results?.first as? HKQuantitySample else {
-                completion(nil, nil)
-                return
-            }
-
-            let vo2 = fitnessSample.quantity.doubleValue(for: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)))
-
-            let data: [String: Any] = [
-                "value": vo2,
-                "unit": "ml/(kg.min)",
-                "startDate": ISO8601DateFormatter().string(from: fitnessSample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-
-            self.db.collection("healthData").document("cardio_\(Int(fitnessSample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? String(format: "%.1f VO2", vo2) : nil, error)
-            }
-        }
-
-        healthStore.execute(query)
-    }
-
-    private func syncMindfulness(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let mindType = HKObjectType.categoryType(forIdentifier: .mindfulnessSession) else {
-            completion(nil, nil)
-            return
-        }
-
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: mindType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error {
-                completion(nil, error)
-                return
-            }
-
-            guard let samples = results as? [HKCategorySample], !samples.isEmpty else {
-                completion(nil, nil)
-                return
-            }
-
-            let totalMinutes = samples.reduce(0.0) { total, sample in
-                total + sample.endDate.timeIntervalSince(sample.startDate) / 60.0
-            }
-
-            let data: [String: Any] = [
-                "value": totalMinutes,
-                "unit": "minutes",
-                "sessionCount": samples.count,
-                "startDate": ISO8601DateFormatter().string(from: samples.first!.startDate),
-                "endDate": ISO8601DateFormatter().string(from: samples.last!.endDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-
-            self.db.collection("healthData").document("mindfulness_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "\(Int(totalMinutes)) min" : nil, error)
-            }
-        }
-
-        healthStore.execute(query)
-    }
 
 
 
@@ -218,8 +140,6 @@ class HealthKitManager {
             ("workouts", syncWorkouts),
             ("nutrition", syncNutrition),
             ("heartRate", syncRestingHeartRate),
-            ("cardioFitness", syncCardioFitness),
-            ("mindfulness", syncMindfulness),
             ("respiratory", syncRespiratoryRate),
             ("bloodGlucose", syncBloodGlucose),
             ("bloodPressure", syncBloodPressure),
@@ -497,8 +417,6 @@ class HealthKitManager {
 
         healthStore.execute(query)
     }
-}
-
 
     // MARK: - Respiratory
 
@@ -535,9 +453,9 @@ class HealthKitManager {
         let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
             if let error = error { completion(nil, error); return }
             guard let sample = results?.first as? HKQuantitySample else { completion(nil, nil); return }
-            let value = sample.quantity.doubleValue(for: HKUnit(dimension: .millimolePerLiter))
+            let value = sample.quantity.doubleValue(for: HKUnit(from: "mg/dL"))
             let data: [String: Any] = [
-                "value": value, "unit": "mmol/L",
+                "value": value, "unit": "mg/dL",
                 "startDate": ISO8601DateFormatter().string(from: sample.startDate),
                 "timestamp": FieldValue.serverTimestamp()
             ]
@@ -559,7 +477,7 @@ class HealthKitManager {
             if let error = error { completion(nil, error); return }
             guard let systolic = results?.first as? HKQuantitySample else { completion(nil, nil); return }
             let systValue = systolic.quantity.doubleValue(for: .millimeterOfMercury())
-            let diastolicQuery = HKSampleQuery(sampleType: diastolicType, predicate: predicate, limit: 1, sortDescriptors: sortDescriptor) { _, dResults, _ in
+            let diastolicQuery = HKSampleQuery(sampleType: diastolicType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, dResults, _ in
                 var diastValue: Double = 0
                 if let diast = dResults?.first as? HKQuantitySample {
                     diastValue = diast.quantity.doubleValue(for: .millimeterOfMercury())
@@ -783,3 +701,5 @@ class HealthKitManager {
         healthStore.execute(query)
     }
 
+
+}
