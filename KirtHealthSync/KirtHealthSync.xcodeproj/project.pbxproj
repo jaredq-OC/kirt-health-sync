@@ -16,13 +16,9 @@
 		A1000007 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A2000007 /* LaunchScreen.storyboard */; };
 		A1000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000008 /* Assets.xcassets */; };
 		A1000009 /* KirtHealthSync.entitlements in Resources */ = {isa = PBXBuildFile; fileRef = A200000A /* KirtHealthSync.entitlements */; };
-		A100000B /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000007 /* UIKit.framework */; };
-		A100000C /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000008 /* HealthKit.framework */; };
-		A100000D /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000A /* libz.tbd */; };
-		A100000E /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000B /* FirebaseFirestore */; };
-		A100000F /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000C /* FirebaseAuth */; };
-		A1000010 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000D /* FirebaseAnalytics */; };
-		A1000011 /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000E /* BackgroundTasks.framework */; };
+		A100000A /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000007 /* UIKit.framework */; };
+		A100000B /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4000008 /* HealthKit.framework */; };
+		A100000C /* BackgroundTasks.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A400000E /* BackgroundTasks.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,13 +39,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A100000B /* UIKit.framework in Frameworks */,
-				A100000C /* HealthKit.framework in Frameworks */,
-				A100000D /* libz.tbd in Frameworks */,
-				A100000E /* FirebaseFirestore in Frameworks */,
-				A100000F /* FirebaseAuth in Frameworks */,
-				A1000010 /* FirebaseAnalytics in Frameworks */,
-				A1000011 /* BackgroundTasks.framework in Frameworks */,
+				A100000A /* UIKit.framework in Frameworks */,
+				A100000B /* HealthKit.framework in Frameworks */,
+				A100000C /* BackgroundTasks.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -87,11 +79,7 @@
 			children = (
 				A4000007 /* UIKit.framework */,
 				A4000008 /* HealthKit.framework */,
-				A4000009 /* CoreData.framework */,
 				A400000E /* BackgroundTasks.framework */,
-				A400000B /* FirebaseFirestore */,
-				A400000C /* FirebaseAuth */,
-				A400000D /* FirebaseAnalytics */,
 			);
 			name = Frameworks;
 			sourceTree = SDKROOT;
@@ -146,11 +134,10 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A5000001 = {
-						CreatedFromSwiftPackage = 1;
 					};
 				};
 			};
@@ -203,12 +190,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A7000001 /* FirebaseFirestore */ = {
+		A7000001 /* firebase-ios-sdk */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 10.0.0;
+				minimumVersion = 11.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -216,18 +203,18 @@
 /* Begin XCSwiftPackageProductDependency section */
 		A7000002 /* FirebaseFirestore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A7000001 /* FirebaseFirestore */;
-			product = "FirebaseFirestore";
+			package = A7000001 /* firebase-ios-sdk */;
+			product = FirebaseFirestore;
 		};
 		A7000003 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A7000001 /* FirebaseFirestore */;
-			product = "FirebaseAuth";
+			package = A7000001 /* firebase-ios-sdk */;
+			product = FirebaseAuth;
 		};
 		A7000004 /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A7000001 /* FirebaseFirestore */;
-			product = "FirebaseAnalytics";
+			package = A7000001 /* firebase-ios-sdk */;
+			product = FirebaseAnalytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 
