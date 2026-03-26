@@ -15,3 +15,22 @@
 **Pattern:** Physical iPhone on iOS 26 blocks app installation until Development Mode is enabled
 **Fix:** Settings → Privacy & Security → Enable Development Mode → restart device
 **Status:** CONFIRMED
+
+## pat-2026-03-27-001: iOS 26 simulator SDK — not all types available
+**First seen:** 2026-03-27
+**Pattern:** distanceRunning, cardioFitnessLevel, electrocardiogram, mindfulnessSession don't exist in iOS 26 simulator SDK
+**Fix:** Remove from typesToRead and corresponding sync functions. Use `distanceWalkingRunning` instead of `distanceRunning`.
+**Status:** CONFIRMED
+**Note:** These may exist on physical iOS 26 devices. Simulator SDK ≠ device SDK.
+
+## pat-2026-03-27-002: Blood glucose HKUnit
+**First seen:** 2026-03-27
+**Pattern:** `HKUnit(dimension: .millimolePerLiter)` is invalid. mmol/L requires molar mass.
+**Fix:** Use `HKUnit(from: "mg/dL")` for US units, or `HKUnit.moleUnit(with: .milli).unitDivided(by: .liter())` with proper molarMass
+**Status:** CONFIRMED
+
+## pat-2026-03-27-003: sortDescriptors must be array
+**First seen:** 2026-03-27
+**Pattern:** `sortDescriptors: sortDescriptor` (bare NSSortDescriptor) causes compile error. HKSampleQuery expects `[NSSortDescriptor]`
+**Fix:** Wrap in array: `sortDescriptors: [sortDescriptor]`
+**Status:** CONFIRMED

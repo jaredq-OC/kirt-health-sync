@@ -31,3 +31,22 @@
 ## Attempt #8 — 2026-03-26
 **Error:** iPhone Development Mode not enabled
 **Fix:** Enable Development Mode in Settings → restart device → success ✅
+
+## Attempt #12 — 2026-03-27 00:00 AEDT — iOS 26 SDK types not available
+**Error:** distanceRunning, cardioFitnessLevel, electrocardiogram, mindfulnessSession — not in HKQuantityTypeIdentifier/HKCategoryTypeIdentifier on iOS 26 simulator
+**Fix:** Removed from typesToRead + removed syncCardioFitness and syncMindfulness functions
+
+## Attempt #13 — 2026-03-27 00:10 AEDT — blood glucose unit error
+**Error:** `HKUnit(dimension: .millimolePerLiter)` invalid
+**Fix:** Changed to `HKUnit(from: "mg/dL")`
+
+## Attempt #14 — 2026-03-27 00:15 AEDT — sortDescriptors type error
+**Error:** `sortDescriptors: sortDescriptor` (bare NSSortDescriptor) — expected `[NSSortDescriptor]`
+**Fix:** Wrapped in array: `sortDescriptors: [sortDescriptor]`
+
+## Attempt #15 — 2026-03-27 00:16 AEDT — framework linking error
+**Error:** XcodeGen `sdk: UIKit.framework` treated as local framework path
+**Fix:** Used working project.yml from c16e55a (with `framework:` which works correctly)
+
+## Attempt #16 — 2026-03-27 00:20 AEDT — BUILD SUCCEEDED ✅
+**Result:** App installed and running on iPhone 17 simulator. No crashes.
