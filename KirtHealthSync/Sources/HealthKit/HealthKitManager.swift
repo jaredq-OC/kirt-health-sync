@@ -193,19 +193,31 @@ class HealthKitManager {
                     totalSleepMinutes += minutes
 
                     let stageName: String
-                    switch categorySample.value {
-                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                        stageName = "asleep"
-                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue:
-                        stageName = "asleepCore"
-                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
-                        stageName = "asleepDeep"
-                    case HKCategoryValueSleepAnalysis.awake.rawValue:
-                        stageName = "awake"
-                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
-                        stageName = "asleepREM"
-                    default:
-                        stageName = "unknown"
+                    if #available(iOS 16.0, *) {
+                        switch categorySample.value {
+                        case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
+                            stageName = "asleep"
+                        case HKCategoryValueSleepAnalysis.asleepCore.rawValue:
+                            stageName = "asleepCore"
+                        case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
+                            stageName = "asleepDeep"
+                        case HKCategoryValueSleepAnalysis.awake.rawValue:
+                            stageName = "awake"
+                        case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
+                            stageName = "asleepREM"
+                        default:
+                            stageName = "unknown"
+                        }
+                    } else {
+                        // iOS 15: only asleep/awake are available
+                        switch categorySample.value {
+                        case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
+                            stageName = "asleep"
+                        case HKCategoryValueSleepAnalysis.awake.rawValue:
+                            stageName = "awake"
+                        default:
+                            stageName = "unknown"
+                        }
                     }
                     sleepStages[stageName] = (sleepStages[stageName] ?? 0) + minutes
                 }
