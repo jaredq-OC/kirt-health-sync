@@ -658,4 +658,37 @@ class HealthKitManager {
             }
         }
     }
+
+// MARK: - Debug
+private func writeDebugSnapshot(metrics: [String: Any], error: Error?) {
+    let db = Firestore.firestore()
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    
+    let docRef = db.collection("kirt").document("debug").collection("hk-snapshots").document()
+    var data: [String: Any] = [
+        "syncedAt": FieldValue.serverTimestamp(),
+        "deviceDate": formatter.string(from: Date()),
+        "metricsCount": metrics.count,
+        "hasError": error != nil
+    ]
+    
+    if let error = error {
+        data["error"] = error.localizedDescription
+    }
+    
+    if metrics.isEmpty {
+        data["emptyMetrics"] = true
+    } else {
+        data["metrics"] = metrics
+    }
+    
+    docRef.setData(data) { err in
+        if let err = err {
+            print("Debug snapshot write error: \(err)")
+        }
+    }
+}
+
+
 }
