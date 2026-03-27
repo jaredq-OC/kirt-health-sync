@@ -442,7 +442,7 @@ class HealthKitManager {
             value = sample.quantity.doubleValue(for: .count())
             unit = "count"
         case .vo2Max:
-            value = sample.quantity.doubleValue(for: HKUnit(from: "mL/min/kg"))
+            value = sample.quantity.doubleValue(for: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)).unitDivided(by: .minute()))
             unit = "mL/min/kg"
         case .heartRate:
             value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
