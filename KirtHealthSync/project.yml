@@ -2,7 +2,7 @@ name: KirtHealthSync
 options:
   bundleIdPrefix: com.kirt
   deployment:
-    iOS: "17.5"
+    iOS: "26.0"
   xcodeVersion: "16.0"
   createIntermediateGroups: true
 
@@ -38,6 +38,7 @@ targets:
         type: group
     settings:
       base:
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.kirt.healthsync
         INFOPLIST_FILE: Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Resources/KirtHealthSync.entitlements
@@ -61,3 +62,5 @@ targets:
       - sdk: UIKit.framework
       - sdk: HealthKit.framework
       - sdk: BackgroundTasks.framework
+
+---SHA: 6fffef777d5a26d575f9282c81b75ead94a612d2
