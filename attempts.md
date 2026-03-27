@@ -50,3 +50,27 @@
 
 ## Attempt #16 — 2026-03-27 00:20 AEDT — BUILD SUCCEEDED ✅
 **Result:** App installed and running on iPhone 17 simulator. No crashes.
+
+---
+
+## Attempt 2.1-2: Firebase Cleanup — BLOCKED (auth)
+
+**Timestamp:** 2026-03-27 16:03 AEDT
+**Task:** Phase 2.1 — Delete healthData collection
+**Action:** firebase projects:list
+**Result:** BLOCKED — Firebase CLI not authenticated
+**Error:** `Error: Failed to authenticate, have you run firebase login?`
+**Next:** Kirt needs to run `firebase login:ci` and provide the token, OR set up service account credentials. This cannot be automated in a headless cron environment.
+**Status:** BLOCKED
+
+---
+
+## Attempt 2.2-1: Firestore Rules Deploy — BLOCKED (auth)
+
+**Timestamp:** 2026-03-27 16:03 AEDT
+**Task:** Phase 2.2 — Deploy Firestore security rules
+**Action:** firebase deploy --only firestore:rules
+**Result:** BLOCKED — Firebase CLI not authenticated
+**Error:** `Error: Failed to authenticate, have you run firebase login?`
+**Next:** Same as 2.1 — Kirt needs to run `firebase login:ci`. Rules file is ready at ~/Projects/kirt-health-sync/firestore.rules
+**Status:** BLOCKED
