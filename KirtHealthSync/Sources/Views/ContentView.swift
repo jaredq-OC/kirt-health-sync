@@ -10,7 +10,7 @@ struct ContentView: View {
                 Section(header: Text("Today's Summary")) {
                     HStack { Text("Steps"); Spacer(); Text("\(viewModel.todaySteps)").foregroundColor(.secondary) }
                     HStack { Text("Sleep"); Spacer(); Text("\(viewModel.todaySleepMinutes) min").foregroundColor(.secondary) }
-                    HStack { Text("Weight"); Spacer(); Text(String(format: "%.1f lb", viewModel.latestWeight)).foregroundColor(.secondary) }
+                    HStack { Text("Weight"); Spacer(); Text(String(format: "%.1f kg", viewModel.latestWeight)).foregroundColor(.secondary) }
                     HStack { Text("Resting HR"); Spacer(); Text("\(viewModel.latestRestingHR) bpm").foregroundColor(.secondary) }
                 }
 
@@ -68,52 +68,50 @@ class HealthDataViewModel: ObservableObject {
 
     private let db = Firestore.firestore()
 
+    private var todayPath: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = formatter.string(from: Date())
+        return "kirt/daily/\(today)"
+    }
+
     func loadData() {
-        let today = Calendar.current.startOfDay(for: Date())
-        let todayTimestamp = Timestamp(date: today)
+        db.document(todayPath).getDocument { [weak self] snapshot, error in
+            guard let self = self, let doc = snapshot, doc.exists else {
+                Task { @MainActor in self?.lastSyncTime = "No data yet" }
+                return
+            }
 
-        db.collection("healthData")
-            .whereField("timestamp", isGreaterThan: todayTimestamp)
-            .order(by: "timestamp", descending: true)
-            .getDocuments { [weak self] snapshot, error in
-                guard let self = self else { return }
-                if let docs = snapshot?.documents {
-                    for doc in docs {
-                        let data = doc.data()
-                        let docId = doc.documentID
+            guard let data = doc.data() else { return }
+            let metrics = data["metrics"] as? [String: Any] ?? [:]
 
-                        if docId.hasPrefix("steps"), let value = data["value"] as? Int {
-                            Task { @MainActor in self.todaySteps = value }
-                        } else if docId.hasPrefix("sleep"), let total = data["totalMinutes"] as? Double {
-                            Task { @MainActor in self.todaySleepMinutes = Int(total) }
-                        } else if docId.hasPrefix("weight"), let value = data["value"] as? Double {
-                            Task { @MainActor in self.latestWeight = value }
-                        } else if docId.hasPrefix("restingHR"), let value = data["value"] as? Double {
-                            Task { @MainActor in self.latestRestingHR = Int(value) }
-                        } else if docId.hasPrefix("nutrition"), let nutrients = data["nutrients"] as? [String: Any] {
-                            Task { @MainActor in
-                                self.nutritionData = NutritionData(
-                                    calories: nutrients["dietaryEnergyConsumed"] as? Double ?? 0,
-                                    protein: nutrients["dietaryProtein"] as? Double ?? 0,
-                                    carbs: nutrients["dietaryCarbohydrates"] as? Double ?? 0,
-                                    fat: nutrients["dietaryFatTotal"] as? Double ?? 0
-                                )
-                            }
-                        } else if docId.hasPrefix("workout") {
-                            if let activity = data["activityType"] as? String,
-                               let duration = data["duration"] as? Double,
-                               let energy = data["energyBurned"] as? Double {
-                                let workout = WorkoutItem(
-                                    activityType: activity,
-                                    duration: duration,
-                                    energyBurned: energy
-                                )
-                                Task { @MainActor in
-                                    if !self.recentWorkouts.contains(where: { $0.id == workout.id }) {
-                                        self.recentWorkouts.append(workout)
-                                    }
-                                }
-                            }
+            Task { @MainActor in
+                if let steps = metrics["steps"] as? [String: Any], let total = steps["total"] as? Int {
+                    self.todaySteps = total
+                }
+                if let sleep = metrics["sleep"] as? [String: Any], let total = sleep["totalMinutes"] as? Int {
+                    self.todaySleepMinutes = total
+                }
+                if let weight = metrics["weight"] as? [String: Any], let value = weight["value"] as? Double {
+                    self.latestWeight = value
+                }
+                if let hr = metrics["restingHeartRate"] as? [String: Any], let value = hr["resting"] as? Int {
+                    self.latestRestingHR = value
+                }
+                if let nutrition = metrics["nutrition"] as? [String: Any] {
+                    self.nutritionData = NutritionData(
+                        calories: nutrition["energy"] as? Double ?? 0,
+                        protein: nutrition["protein"] as? Double ?? 0,
+                        carbs: nutrition["carbs"] as? Double ?? 0,
+                        fat: nutrition["fat"] as? Double ?? 0
+                    )
+                }
+                if let workouts = metrics["workouts"] as? [[String: Any]] {
+                    for w in workouts {
+                        if let activity = w["type"] as? String,
+                           let duration = w["duration"] as? Double,
+                           let calories = w["calories"] as? Double {
+                            self.recentWorkouts.append(WorkoutItem(activityType: activity, duration: duration, energyBurned: calories))
                         }
                     }
                 }
@@ -121,8 +119,9 @@ class HealthDataViewModel: ObservableObject {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .short
                 formatter.timeStyle = .short
-                Task { @MainActor in self.lastSyncTime = formatter.string(from: Date()) }
+                self.lastSyncTime = formatter.string(from: Date())
             }
+        }
     }
 
     func syncNow() {
