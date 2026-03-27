@@ -9,57 +9,59 @@ class HealthKitManager {
     private let healthStore = HKHealthStore()
     private let db = Firestore.firestore()
 
-    // HealthKit data types to sync
-    private let typesToRead: Set<HKObjectType> = [
-        // Activity
-        HKObjectType.quantityType(forIdentifier: .stepCount)!,
-        HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!,
-        HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)!,
-        HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning)!,
-        HKObjectType.quantityType(forIdentifier: .distanceSwimming)!,
-        HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount)!,
-        HKObjectType.quantityType(forIdentifier: .vo2Max)!,
-        // Body Measurements
-        HKObjectType.quantityType(forIdentifier: .bodyMass)!,
-        HKObjectType.quantityType(forIdentifier: .height)!,
-        HKObjectType.quantityType(forIdentifier: .bodyFatPercentage)!,
-        HKObjectType.quantityType(forIdentifier: .leanBodyMass)!,
-        HKObjectType.quantityType(forIdentifier: .bodyMassIndex)!,
-        // Heart
-        HKObjectType.quantityType(forIdentifier: .heartRate)!,
-        HKObjectType.quantityType(forIdentifier: .restingHeartRate)!,
-        HKObjectType.quantityType(forIdentifier: .walkingHeartRateAverage)!,
-        HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
-        HKObjectType.workoutType(),
-        // Sleep
-        HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
-        // Vitals
-        HKObjectType.quantityType(forIdentifier: .respiratoryRate)!,
-        HKObjectType.quantityType(forIdentifier: .bloodGlucose)!,
-        HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic)!,
-        HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic)!,
-        HKObjectType.quantityType(forIdentifier: .oxygenSaturation)!,
-        // Running Metrics
-        HKObjectType.quantityType(forIdentifier: .runningSpeed)!,
-        HKObjectType.quantityType(forIdentifier: .runningPower)!,
-        // Audio
-        HKObjectType.quantityType(forIdentifier: .headphoneAudioExposure)!,
-        // Nutrition
-        HKObjectType.quantityType(forIdentifier: .dietaryEnergyConsumed)!,
-        HKObjectType.quantityType(forIdentifier: .dietaryProtein)!,
-        HKObjectType.quantityType(forIdentifier: .dietaryCarbohydrates)!,
-        HKObjectType.quantityType(forIdentifier: .dietaryFatTotal)!,
-        HKObjectType.quantityType(forIdentifier: .dietaryFiber)!,
-        HKObjectType.quantityType(forIdentifier: .dietarySugar)!,
-        HKObjectType.quantityType(forIdentifier: .dietarySodium)!,
-        HKObjectType.quantityType(forIdentifier: .dietaryWater)!,
+    // MARK: - UserDefaults keys for anchors
+    private let anchorKeyPrefix = "HKManager_Anchor_"
+
+    // MARK: - Firestore collection path
+    private var dailyCollectionPath: String {
+        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        return "kirt/daily/\(today)"
+    }
+
+    // MARK: - Batch metrics accumulator
+    private var syncMetrics: [String: Any] = [:]
+    private var syncWorkouts: [[String: Any]] = []
+    private var syncWindowStart: Date?
+    private var syncWindowEnd: Date = Date()
+    private var pendingWrites: Int = 0
+    private let metricsQueue = DispatchQueue(label: "com.kirt.healthsync.metrics")
+
+    // MARK: - HealthKit data types (quantity + workout, anchored queries)
+    private let anchoredTypes: [HKQuantityTypeIdentifier] = [
+        .stepCount,
+        .activeEnergyBurned,
+        .basalEnergyBurned,
+        .distanceWalkingRunning,
+        .distanceSwimming,
+        .swimmingStrokeCount,
+        .vo2Max,
+        .heartRate,
+        .restingHeartRate,
+        .walkingHeartRateAverage,
+        .heartRateVariabilitySDNN,
+        .bodyMass,
+        .height,
+        .bodyFatPercentage,
+        .leanBodyMass,
+        .bodyMassIndex,
+        .respiratoryRate,
+        .bloodGlucose,
+        .bloodPressureSystolic,
+        .bloodPressureDiastolic,
+        .oxygenSaturation,
+        .runningSpeed,
+        .runningPower,
+        .dietaryEnergyConsumed,
+        .dietaryProtein,
+        .dietaryCarbohydrates,
+        .dietaryFatTotal,
+        .dietaryFiber,
+        .dietarySugar,
+        .dietarySodium,
+        .dietaryWater,
     ]
 
-    private let typesToWrite: Set<HKSampleType> = [
-        HKObjectType.quantityType(forIdentifier: .bodyMass)!,
-    ]
-
-    // Background task identifier
+    // MARK: - Background task identifier
     private let backgroundTaskIdentifier = "com.kirt.healthsync.backgroundsync"
 
     private init() {
@@ -74,6 +76,19 @@ class HealthKitManager {
             return
         }
 
+        var typesToRead: Set<HKObjectType> = []
+        for id in anchoredTypes {
+            if let t = HKQuantityType.quantityType(forIdentifier: id) {
+                typesToRead.insert(t)
+            }
+        }
+        typesToRead.insert(HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!)
+        typesToRead.insert(HKObjectType.workoutType())
+
+        let typesToWrite: Set<HKSampleType> = [
+            HKQuantityType.quantityType(forIdentifier: .bodyMass)!,
+        ]
+
         healthStore.requestAuthorization(toShare: typesToWrite, read: typesToRead) { success, error in
             DispatchQueue.main.async {
                 completion(success, error)
@@ -84,17 +99,15 @@ class HealthKitManager {
     // MARK: - Background Sync
 
     func startBackgroundSync() {
-        // Schedule immediate sync
+        registerSleepObserver()  // Register once; fires on new sleep data
         syncHealthData()
-
-        // Schedule recurring background fetch every 15 minutes
         scheduleBackgroundTask()
     }
 
     private func scheduleBackgroundTask() {
         let request = BGProcessingTaskRequest(identifier: backgroundTaskIdentifier)
         request.requiresNetworkConnectivity = true
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
 
         do {
             try BGTaskScheduler.shared.submit(request)
@@ -105,7 +118,7 @@ class HealthKitManager {
     }
 
     private func handleBackgroundTask(task: BGProcessingTask) {
-        scheduleBackgroundTask() // Reschedule
+        scheduleBackgroundTask()
 
         task.expirationHandler = {
             task.setTaskCompleted(success: false)
@@ -120,586 +133,529 @@ class HealthKitManager {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundTaskIdentifier, using: nil) { task in
             self.handleBackgroundTask(task: task as! BGProcessingTask)
         }
-    }    // MARK: - Cardio Fitness
+    }
 
+    // MARK: - Sleep Observer Query
 
+    /// Registered once at startBackgroundSync(). Fires when Apple Health saves new sleep data
+    /// (e.g., after the user wakes up). Triggers an immediate anchored sync of sleep samples.
+    private func registerSleepObserver() {
+        guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
 
+        let observerQuery = HKObserverQuery(sampleType: sleepType, predicate: nil) { [weak self] _, _, error in
+            if let error = error {
+                print("Sleep observer query error: \(error)")
+                return
+            }
+            print("Sleep observer fired — syncing sleep data")
+            self?.syncSleepData()
+        }
 
+        healthStore.execute(observerQuery)
+    }
 
     // MARK: - Data Sync
 
+    /// Main entry point. Runs anchored object queries for all types in parallel,
+    /// accumulates results, then writes ONE Firestore document per sync.
     func syncHealthData(completion: ((Bool) -> Void)? = nil) {
+        // Reset accumulators for this sync window
+        metricsQueue.sync {
+            syncMetrics = [:]
+            syncWorkouts = []
+            syncWindowStart = getAnchorDate()
+            syncWindowEnd = Date()
+        }
+
         let group = DispatchGroup()
         var syncSuccess = true
 
-        // Sync each data type
-        let dataTypes: [(String, (Date, Date, @escaping (Any?, Error?) -> Void) -> Void)] = [
-            ("steps", syncSteps),
-            ("sleep", syncSleep),
-            ("weight", syncWeight),
-            ("workouts", syncWorkouts),
-            ("nutrition", syncNutrition),
-            ("heartRate", syncRestingHeartRate),
-            ("respiratory", syncRespiratoryRate),
-            ("bloodGlucose", syncBloodGlucose),
-            ("bloodPressure", syncBloodPressure),
-            ("oxygenSaturation", syncOxygenSaturation),
-            ("hrv", syncHRV),
-            ("runningMetrics", syncRunningMetrics),
-            ("swimming", syncSwimming),
-            ("bodyComposition", syncBodyComposition),
-            ("water", syncWater),
-        ]
-
-        for (name, syncFunc) in dataTypes {
+        // Run anchored query for each quantity type
+        for id in anchoredTypes {
+            guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
             group.enter()
-            let startDate = Calendar.current.date(byAdding: .hour, value: -1, to: Date()) ?? Date()
-            let endDate = Date()
-
-            syncFunc(startDate, endDate) { result, error in
-                if let error = error {
-                    print("Sync error for \(name): \(error)")
-                    syncSuccess = false
-                } else {
-                    print("Synced \(name): \(result ?? "ok")")
-                }
+            runAnchoredQuery(for: type, metricId: id.rawValue) { error in
+                if error != nil { syncSuccess = false }
                 group.leave()
             }
         }
 
-        group.notify(queue: .main) {
-            completion?(syncSuccess)
-        }
-    }
-
-    // MARK: - Sync Functions
-
-    private func syncSteps(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let stepType = HKObjectType.quantityType(forIdentifier: .stepCount) else {
-            completion(nil, NSError(domain: "HealthKit", code: -2, userInfo: nil))
-            return
+        // Run anchored query for workouts
+        group.enter()
+        runWorkoutAnchoredQuery { error in
+            if error != nil { syncSuccess = false }
+            group.leave()
         }
 
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
-            if let error = error {
-                completion(nil, error)
-                return
-            }
-
-            let steps = result?.sumQuantity()?.doubleValue(for: .count()) ?? 0
-
-            let data: [String: Any] = [
-                "value": steps,
-                "unit": "count",
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "endDate": ISO8601DateFormatter().string(from: endDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-
-            self.db.collection("healthData").document("steps_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "\(steps) steps" : nil, error)
-            }
+        // Run anchored query for sleep (category type — separate path)
+        group.enter()
+        runSleepAnchoredQuery { error in
+            if error != nil { syncSuccess = false }
+            group.leave()
         }
 
-        healthStore.execute(query)
-    }
-
-    private func syncSleep(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
-            completion(nil, nil)
-            return
-        }
-
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let query = HKSampleQuery(sampleType: sleepType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, results, error in
-            if let error = error {
-                completion(nil, error)
-                return
-            }
-
-            var totalSleepMinutes: Double = 0
-            var sleepStages: [String: Double] = [:]
-
-            for sample in results ?? [] {
-                if let categorySample = sample as? HKCategorySample {
-                    let minutes = categorySample.endDate.timeIntervalSince(categorySample.startDate) / 60
-                    totalSleepMinutes += minutes
-
-                    let stageName: String
-                    if #available(iOS 16.0, *) {
-                        switch categorySample.value {
-                        case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                            stageName = "asleep"
-                        case HKCategoryValueSleepAnalysis.asleepCore.rawValue:
-                            stageName = "asleepCore"
-                        case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
-                            stageName = "asleepDeep"
-                        case HKCategoryValueSleepAnalysis.awake.rawValue:
-                            stageName = "awake"
-                        case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
-                            stageName = "asleepREM"
-                        default:
-                            stageName = "unknown"
-                        }
-                    } else {
-                        // iOS 15: only asleep/awake are available
-                        switch categorySample.value {
-                        case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
-                            stageName = "asleep"
-                        case HKCategoryValueSleepAnalysis.awake.rawValue:
-                            stageName = "awake"
-                        default:
-                            stageName = "unknown"
-                        }
-                    }
-                    sleepStages[stageName] = (sleepStages[stageName] ?? 0) + minutes
+        // After all queries complete, write ONE batch upsert to Firestore
+        group.notify(queue: metricsQueue) { [weak self] in
+            guard let self = self else { return }
+            self.writeBatchUpsert { success in
+                DispatchQueue.main.async {
+                    completion?(success && syncSuccess)
                 }
             }
+        }
+    }
 
-            let data: [String: Any] = [
-                "totalMinutes": totalSleepMinutes,
-                "stages": sleepStages,
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "endDate": ISO8601DateFormatter().string(from: endDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
+    // MARK: - HKAnchoredObjectQuery for Quantity Types
 
-            self.db.collection("healthData").document("sleep_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "\(Int(totalSleepMinutes)) min" : nil, error)
+    /// Runs an anchored object query for a single HKQuantityType.
+    /// Updates the anchor in UserDefaults on completion so restarts resume correctly.
+    private func runAnchoredQuery(for quantityType: HKQuantityType, metricId: String, completion: @escaping (Error?) -> Void) {
+        let anchor = loadAnchor(for: metricId)
+
+        let query = HKAnchoredObjectQuery(
+            type: quantityType,
+            predicate: nil,
+            anchor: anchor,
+            limit: HKObjectQueryNoLimit
+        ) { [weak self] _, samples, _, newAnchor, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("Anchored query error for \(metricId): \(error)")
+                completion(error)
+                return
+            }
+
+            // Persist new anchor before processing (prevents duplicates on crash)
+            if let newAnchor = newAnchor {
+                self.saveAnchor(newAnchor, for: metricId)
+            }
+
+            if let quantitySamples = samples as? [HKQuantitySample] {
+                self.processQuantitySamples(quantitySamples, metricId: metricId)
+            }
+
+            completion(nil)
+        }
+
+        query.updateHandler = { [weak self] _, samples, _, newAnchor, error in
+            guard let self = self else { return }
+            if let newAnchor = newAnchor {
+                self.saveAnchor(newAnchor, for: metricId)
+            }
+            if let quantitySamples = samples as? [HKQuantitySample] {
+                self.processQuantitySamples(quantitySamples, metricId: metricId)
             }
         }
 
         healthStore.execute(query)
     }
 
-    private func syncWeight(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let weightType = HKObjectType.quantityType(forIdentifier: .bodyMass) else {
-            completion(nil, nil)
+    // MARK: - HKAnchoredObjectQuery for Workouts
+
+    private func runWorkoutAnchoredQuery(completion: @escaping (Error?) -> Void) {
+        let anchor = loadAnchor(for: "workout")
+        let query = HKAnchoredObjectQuery(
+            type: HKObjectType.workoutType(),
+            predicate: nil,
+            anchor: anchor,
+            limit: HKObjectQueryNoLimit
+        ) { [weak self] _, samples, _, newAnchor, error in
+            guard let self = self else { return }
+
+            if let error = error {
+                print("Workout anchored query error: \(error)")
+                completion(error)
+                return
+            }
+
+            if let newAnchor = newAnchor {
+                self.saveAnchor(newAnchor, for: "workout")
+            }
+
+            if let workouts = samples as? [HKWorkout] {
+                self.processWorkouts(workouts)
+            }
+
+            completion(nil)
+        }
+
+        query.updateHandler = { [weak self] _, samples, _, newAnchor, error in
+            guard let self = self else { return }
+            if let newAnchor = newAnchor {
+                self.saveAnchor(newAnchor, for: "workout")
+            }
+            if let workouts = samples as? [HKWorkout] {
+                self.processWorkouts(workouts)
+            }
+        }
+
+        healthStore.execute(query)
+    }
+
+    // MARK: - HKAnchoredObjectQuery for Sleep (Category Type)
+
+    /// Sleep uses HKCategorySample — anchored query pattern is the same as quantity types.
+    private func runSleepAnchoredQuery(completion: @escaping (Error?) -> Void) {
+        guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+            completion(nil)
             return
         }
 
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: weightType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
+        let anchor = loadAnchor(for: "sleep")
+        let query = HKAnchoredObjectQuery(
+            type: sleepType,
+            predicate: nil,
+            anchor: anchor,
+            limit: HKObjectQueryNoLimit
+        ) { [weak self] _, samples, _, newAnchor, error in
+            guard let self = self else { return }
+
             if let error = error {
-                completion(nil, error)
+                print("Sleep anchored query error: \(error)")
+                completion(error)
                 return
             }
 
-            guard let weightSample = results?.first as? HKQuantitySample else {
-                completion(nil, nil)
-                return
+            if let newAnchor = newAnchor {
+                self.saveAnchor(newAnchor, for: "sleep")
             }
 
-            let weight = weightSample.quantity.doubleValue(for: .pound())
+            if let categorySamples = samples as? [HKCategorySample] {
+                self.processSleepSamples(categorySamples)
+            }
 
-            let data: [String: Any] = [
-                "value": weight,
-                "unit": "lb",
-                "startDate": ISO8601DateFormatter().string(from: weightSample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
+            completion(nil)
+        }
 
-            self.db.collection("healthData").document("weight_\(Int(weightSample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "\(weight) lb" : nil, error)
+        query.updateHandler = { [weak self] _, samples, _, newAnchor, error in
+            guard let self = self else { return }
+            if let newAnchor = newAnchor {
+                self.saveAnchor(newAnchor, for: "sleep")
+            }
+            if let categorySamples = samples as? [HKCategorySample] {
+                self.processSleepSamples(categorySamples)
             }
         }
 
         healthStore.execute(query)
     }
 
-    private func syncWorkouts(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error {
-                completion(nil, error)
-                return
-            }
+    /// Called directly by HKObserverQuery when new sleep data arrives overnight.
+    /// Uses an anchored query so we don't re-process everything.
+    private func syncSleepData() {
+        runSleepAnchoredQuery { _ in }
+    }
 
-            guard let workouts = results as? [HKWorkout] else {
-                completion(nil, nil)
-                return
-            }
+    // MARK: - Sample Processing
 
+    private func processQuantitySamples(_ samples: [HKQuantitySample], metricId: String) {
+        guard !samples.isEmpty else { return }
+
+        metricsQueue.sync {
+            for sample in samples {
+                accumulateMetric(metricId, sample: sample)
+            }
+        }
+    }
+
+    private func processWorkouts(_ workouts: [HKWorkout]) {
+        metricsQueue.sync {
             for workout in workouts {
-                let data: [String: Any] = [
-                    "activityType": String(describing: workout.workoutActivityType),
+                let entry: [String: Any] = [
+                    "type": String(describing: workout.workoutActivityType),
                     "duration": workout.duration,
                     "startDate": ISO8601DateFormatter().string(from: workout.startDate),
                     "endDate": ISO8601DateFormatter().string(from: workout.endDate),
                     "energyBurned": workout.totalEnergyBurned?.doubleValue(for: .kilocalorie()) ?? 0,
-                    "timestamp": FieldValue.serverTimestamp()
                 ]
-
-                self.db.collection("healthData").document("workout_\(Int(workout.startDate.timeIntervalSince1970))").setData(data)
+                syncWorkouts.append(entry)
             }
-
-            completion("\(workouts.count) workouts", nil)
         }
-
-        healthStore.execute(query)
     }
 
-    private func syncNutrition(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        let nutritionTypes: [HKQuantityTypeIdentifier] = [
-            .dietaryEnergyConsumed, .dietaryProtein, .dietaryCarbohydrates,
-            .dietaryFatTotal, .dietaryFiber, .dietarySugar, .dietarySodium
-        ]
+    private func processSleepSamples(_ samples: [HKCategorySample]) {
+        metricsQueue.sync {
+            var totalMinutes: Double = 0
+            var stages: [String: Double] = [:]
 
-        var nutritionData: [String: Double] = [:]
-        let group = DispatchGroup()
+            for sample in samples {
+                let minutes = sample.endDate.timeIntervalSince(sample.startDate) / 60
+                totalMinutes += minutes
 
-        for nutrient in nutritionTypes {
-            group.enter()
-            guard let type = HKObjectType.quantityType(forIdentifier: nutrient) else {
-                group.leave()
-                continue
-            }
-
-            let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-            let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
-                if let sum = result?.sumQuantity() {
-                    nutritionData[nutrient.rawValue] = sum.doubleValue(for: .gram())
+                let stageName: String
+                if #available(iOS 16.0, *) {
+                    switch HKCategoryValueSleepAnalysis(rawValue: sample.value) {
+                    case .asleepUnspecified: stageName = "asleep"
+                    case .asleepCore: stageName = "asleepCore"
+                    case .asleepDeep: stageName = "asleepDeep"
+                    case .awake: stageName = "awake"
+                    case .asleepREM: stageName = "asleepREM"
+                    default: stageName = "unknown"
+                    }
+                } else {
+                    switch sample.value {
+                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: stageName = "asleep"
+                    case HKCategoryValueSleepAnalysis.awake.rawValue: stageName = "awake"
+                    default: stageName = "unknown"
+                    }
                 }
-                group.leave()
+
+                stages[stageName] = (stages[stageName] ?? 0) + minutes
             }
-            healthStore.execute(query)
-        }
 
-        group.notify(queue: .main) {
-            let data: [String: Any] = [
-                "nutrients": nutritionData,
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "endDate": ISO8601DateFormatter().string(from: endDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-
-            self.db.collection("healthData").document("nutrition_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "nutrition logged" : nil, error)
+            if totalMinutes > 0 {
+                syncMetrics["sleep"] = [
+                    "totalMinutes": totalMinutes,
+                    "stages": stages,
+                    "unit": "min",
+                ]
             }
         }
     }
 
-    private func syncRestingHeartRate(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let hrType = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else {
-            completion(nil, nil)
+    // MARK: - Metric Accumulation
+
+    /// Accumulates the latest value for each metric type into syncMetrics.
+    /// For cumulative types (steps, energy, distance), sums all samples in the window.
+    private func accumulateMetric(_ metricId: String, sample: HKQuantitySample) {
+        let value: Any
+        var unit: String = ""
+
+        switch HKQuantityTypeIdentifier(rawValue: metricId) {
+        case .stepCount:
+            value = sample.quantity.doubleValue(for: .count())
+            unit = "count"
+        case .activeEnergyBurned:
+            value = sample.quantity.doubleValue(for: .kilocalorie())
+            unit = "kcal"
+        case .basalEnergyBurned:
+            value = sample.quantity.doubleValue(for: .kilocalorie())
+            unit = "kcal"
+        case .distanceWalkingRunning:
+            value = sample.quantity.doubleValue(for: .meter())
+            unit = "m"
+        case .distanceSwimming:
+            value = sample.quantity.doubleValue(for: .meter())
+            unit = "m"
+        case .swimmingStrokeCount:
+            value = sample.quantity.doubleValue(for: .count())
+            unit = "count"
+        case .vo2Max:
+            value = sample.quantity.doubleValue(for: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)))
+            unit = "mL/min/kg"
+        case .heartRate:
+            value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
+            unit = "count/min"
+        case .restingHeartRate:
+            value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
+            unit = "count/min"
+        case .walkingHeartRateAverage:
+            value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
+            unit = "count/min"
+        case .heartRateVariabilitySDNN:
+            value = sample.quantity.doubleValue(for: .secondUnit(with: .milli))
+            unit = "ms"
+        case .bodyMass:
+            // Convert lb → kg as per Phase 2 schema
+            let lb = sample.quantity.doubleValue(for: .pound())
+            value = lb / 2.20462
+            unit = "kg"
+        case .height:
+            value = sample.quantity.doubleValue(for: .meterUnit(with: .centi))
+            unit = "cm"
+        case .bodyFatPercentage:
+            value = sample.quantity.doubleValue(for: .percent())
+            unit = "fraction"
+        case .leanBodyMass:
+            // Convert lb → kg
+            let lb = sample.quantity.doubleValue(for: .pound())
+            value = lb / 2.20462
+            unit = "kg"
+        case .bodyMassIndex:
+            value = sample.quantity.doubleValue(for: .count())
+            unit = "count"
+        case .respiratoryRate:
+            value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
+            unit = "count/min"
+        case .bloodGlucose:
+            value = sample.quantity.doubleValue(for: HKUnit(from: "mg/dL"))
+            unit = "mg/dL"
+        case .bloodPressureSystolic:
+            value = sample.quantity.doubleValue(for: .millimeterOfMercury())
+            unit = "mmHg"
+        case .bloodPressureDiastolic:
+            value = sample.quantity.doubleValue(for: .millimeterOfMercury())
+            unit = "mmHg"
+        case .oxygenSaturation:
+            value = sample.quantity.doubleValue(for: .percent())
+            unit = "%"
+        case .runningSpeed:
+            value = sample.quantity.doubleValue(for: HKUnit(from: "m/s"))
+            unit = "m/s"
+        case .runningPower:
+            value = sample.quantity.doubleValue(for: .watt())
+            unit = "W"
+        case .dietaryEnergyConsumed:
+            value = sample.quantity.doubleValue(for: .kilocalorie())
+            unit = "kcal"
+        case .dietaryProtein:
+            value = sample.quantity.doubleValue(for: .gram())
+            unit = "g"
+        case .dietaryCarbohydrates:
+            value = sample.quantity.doubleValue(for: .gram())
+            unit = "g"
+        case .dietaryFatTotal:
+            value = sample.quantity.doubleValue(for: .gram())
+            unit = "g"
+        case .dietaryFiber:
+            value = sample.quantity.doubleValue(for: .gram())
+            unit = "g"
+        case .dietarySugar:
+            value = sample.quantity.doubleValue(for: .gram())
+            unit = "g"
+        case .dietarySodium:
+            value = sample.quantity.doubleValue(for: .gramUnit(with: .milli))
+            unit = "mg"
+        case .dietaryWater:
+            value = sample.quantity.doubleValue(for: .liter())
+            unit = "L"
+        default:
+            print("Unknown metric: \(metricId)")
             return
         }
 
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: hrType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error {
-                completion(nil, error)
-                return
+        // Merge into existing accumulated value (for cumulative types like steps)
+        let existing = syncMetrics[metricId] as? [String: Any]
+        if var existingMetric = existing {
+            if let existingTotal = existingMetric["total"] as? Double, let newVal = value as? Double {
+                existingMetric["total"] = existingTotal + newVal
+            } else {
+                // Non-cumulative: just take the latest value
+                existingMetric["latest"] = value
             }
-
-            guard let hrSample = results?.first as? HKQuantitySample else {
-                completion(nil, nil)
-                return
+            existingMetric["unit"] = unit
+            syncMetrics[metricId] = existingMetric
+        } else {
+            var metric: [String: Any] = ["unit": unit]
+            if let v = value as? Double {
+                metric["total"] = v
+            } else {
+                metric["latest"] = value
             }
-
-            let hr = hrSample.quantity.doubleValue(for: HKUnit(from: "count/min"))
-
-            let data: [String: Any] = [
-                "value": hr,
-                "unit": "count/min",
-                "startDate": ISO8601DateFormatter().string(from: hrSample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-
-            self.db.collection("healthData").document("restingHR_\(Int(hrSample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "\(Int(hr)) bpm" : nil, error)
-            }
-        }
-
-        healthStore.execute(query)
-    }
-
-    // MARK: - Respiratory
-
-    private func syncRespiratoryRate(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let type = HKObjectType.quantityType(forIdentifier: .respiratoryRate) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error { completion(nil, error); return }
-            guard let sample = results?.first as? HKQuantitySample else { completion(nil, nil); return }
-            let value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
-            let data: [String: Any] = [
-                "value": value, "unit": "breaths/min",
-                "startDate": ISO8601DateFormatter().string(from: sample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("respiratory_\(Int(sample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "\(String(format: "%.1f", value)) brpm" : nil, error)
-            }
-        }
-        healthStore.execute(query)
-    }
-
-    // MARK: - Blood Metrics
-
-    private func syncBloodGlucose(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let type = HKObjectType.quantityType(forIdentifier: .bloodGlucose) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error { completion(nil, error); return }
-            guard let sample = results?.first as? HKQuantitySample else { completion(nil, nil); return }
-            let value = sample.quantity.doubleValue(for: HKUnit(from: "mg/dL"))
-            let data: [String: Any] = [
-                "value": value, "unit": "mg/dL",
-                "startDate": ISO8601DateFormatter().string(from: sample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("glucose_\(Int(sample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? String(format: "%.1f mmol/L", value) : nil, error)
-            }
-        }
-        healthStore.execute(query)
-    }
-
-    private func syncBloodPressure(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let systolicType = HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic),
-              let diastolicType = HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: systolicType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error { completion(nil, error); return }
-            guard let systolic = results?.first as? HKQuantitySample else { completion(nil, nil); return }
-            let systValue = systolic.quantity.doubleValue(for: .millimeterOfMercury())
-            let diastolicQuery = HKSampleQuery(sampleType: diastolicType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, dResults, _ in
-                var diastValue: Double = 0
-                if let diast = dResults?.first as? HKQuantitySample {
-                    diastValue = diast.quantity.doubleValue(for: .millimeterOfMercury())
-                }
-                let data: [String: Any] = [
-                    "systolic": systValue, "diastolic": diastValue, "unit": "mmHg",
-                    "startDate": ISO8601DateFormatter().string(from: systolic.startDate),
-                    "timestamp": FieldValue.serverTimestamp()
-                ]
-                self.db.collection("healthData").document("bp_\(Int(systolic.startDate.timeIntervalSince1970))").setData(data) { error in
-                    completion(error == nil ? "\(Int(systValue))/\(Int(diastValue)) mmHg" : nil, error)
-                }
-            }
-            self.healthStore.execute(diastolicQuery)
-        }
-        healthStore.execute(query)
-    }
-
-    private func syncOxygenSaturation(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let type = HKObjectType.quantityType(forIdentifier: .oxygenSaturation) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error { completion(nil, error); return }
-            guard let sample = results?.first as? HKQuantitySample else { completion(nil, nil); return }
-            let value = sample.quantity.doubleValue(for: .percent())
-            let data: [String: Any] = [
-                "value": value * 100, "unit": "%",
-                "startDate": ISO8601DateFormatter().string(from: sample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("spO2_\(Int(sample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? String(format: "%.0f%%", value * 100) : nil, error)
-            }
-        }
-        healthStore.execute(query)
-    }
-
-    // MARK: - HRV & ECG
-
-    private func syncHRV(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let type = HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-        let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, results, error in
-            if let error = error { completion(nil, error); return }
-            guard let sample = results?.first as? HKQuantitySample else { completion(nil, nil); return }
-            let value = sample.quantity.doubleValue(for: .secondUnit(with: .milli))
-            let data: [String: Any] = [
-                "value": value, "unit": "ms",
-                "startDate": ISO8601DateFormatter().string(from: sample.startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("hrv_\(Int(sample.startDate.timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? String(format: "%.1f ms", value) : nil, error)
-            }
-        }
-        healthStore.execute(query)
-    }
-
-    // MARK: - Running
-
-    private func syncRunningMetrics(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let speedType = HKObjectType.quantityType(forIdentifier: .runningSpeed),
-              let powerType = HKObjectType.quantityType(forIdentifier: .runningPower) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-
-        var results: [String: Any] = [:]
-        let group = DispatchGroup()
-
-        group.enter()
-        let speedQuery = HKSampleQuery(sampleType: speedType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, samples, _ in
-            if let s = samples?.first as? HKQuantitySample {
-                let speed = s.quantity.doubleValue(for: HKUnit(from: "m/s"))
-                results["speed"] = speed
-            }
-            group.leave()
-        }
-        healthStore.execute(speedQuery)
-
-        group.enter()
-        let powerQuery = HKSampleQuery(sampleType: powerType, predicate: predicate, limit: 1, sortDescriptors: [sortDescriptor]) { _, samples, _ in
-            if let p = samples?.first as? HKQuantitySample {
-                let power = p.quantity.doubleValue(for: .watt())
-                results["power"] = power
-            }
-            group.leave()
-        }
-        healthStore.execute(powerQuery)
-
-        group.notify(queue: .main) {
-            if results.isEmpty { completion(nil, nil); return }
-            let data: [String: Any] = [
-                "speed": results["speed"] ?? 0,
-                "power": results["power"] ?? 0,
-                "unit": "m/s, W",
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("running_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                let speed = results["speed"] as? Double ?? 0
-                let power = results["power"] as? Double ?? 0
-                completion(error == nil ? "speed \(String(format: "%.1f", speed)) m/s, power \(Int(power)) W" : nil, error)
-            }
+            syncMetrics[metricId] = metric
         }
     }
 
-    // MARK: - Swimming
+    // MARK: - Anchor Persistence
 
-    private func syncSwimming(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let distType = HKObjectType.quantityType(forIdentifier: .distanceSwimming),
-              let strokeType = HKObjectType.quantityType(forIdentifier: .swimmingStrokeCount) else {
-            completion(nil, nil); return
+    private func loadAnchor(for metricId: String) -> HKQueryAnchor? {
+        guard let data = UserDefaults.standard.data(forKey: anchorKeyPrefix + metricId) else {
+            return nil
         }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
+    }
 
-        var results: [String: Any] = [:]
-        let group = DispatchGroup()
-
-        group.enter()
-        let distQuery = HKSampleQuery(sampleType: distType, predicate: predicate, limit: 1, sortDescriptors: nil) { _, samples, _ in
-            if let d = samples?.first as? HKQuantitySample {
-                let dist = d.quantity.doubleValue(for: .meter())
-                results["distance"] = dist
-            }
-            group.leave()
-        }
-        healthStore.execute(distQuery)
-
-        group.enter()
-        let strokeQuery = HKSampleQuery(sampleType: strokeType, predicate: predicate, limit: 1, sortDescriptors: nil) { _, samples, _ in
-            if let s = samples?.first as? HKQuantitySample {
-                let strokes = s.quantity.doubleValue(for: .count())
-                results["strokes"] = Int(strokes)
-            }
-            group.leave()
-        }
-        healthStore.execute(strokeQuery)
-
-        group.notify(queue: .main) {
-            if results.isEmpty { completion(nil, nil); return }
-            let data: [String: Any] = [
-                "distance": results["distance"] ?? 0,
-                "strokes": results["strokes"] ?? 0,
-                "unit": "m, count",
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("swimming_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "dist \(Int(results["distance"] as? Double ?? 0))m, strokes \(results["strokes"] ?? 0)" : nil, error)
-            }
+    private func saveAnchor(_ anchor: HKQueryAnchor, for metricId: String) {
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true) {
+            UserDefaults.standard.set(data, forKey: anchorKeyPrefix + metricId)
         }
     }
 
-    // MARK: - Body Composition
+    /// Returns the anchor date as the beginning of this sync window.
+    /// If no anchor exists, returns nil (query returns all historical data on first run).
+    private func getAnchorDate() -> Date? {
+        return nil  // Anchored queries handle this via the HKQueryAnchor itself
+    }
 
-    private func syncBodyComposition(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        let types: [(String, HKQuantityTypeIdentifier)] = [
-            ("bodyFat", .bodyFatPercentage),
-            ("leanMass", .leanBodyMass),
-            ("bmi", .bodyMassIndex),
+    // MARK: - Firestore Batch Upsert
+
+    /// Writes ONE document to kirt/daily/{YYYY-MM-DD} containing all accumulated metrics.
+    /// Uses setData with merge:true so each metric field is updated without overwriting
+    /// the entire document (safe for concurrent syncs).
+    private func writeBatchUpsert(completion: @escaping (Bool) -> Void) {
+        let todayStr = String(ISO8601DateFormatter().string(from: Date()).prefix(10))
+
+        var document: [String: Any] = [
+            "date": todayStr,
+            "syncedAt": FieldValue.serverTimestamp(),
+            "windowStart": syncWindowStart ?? NSNull(),
+            "windowEnd": FieldValue.serverTimestamp(),
         ]
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        var results: [String: Any] = [:]
-        let group = DispatchGroup()
 
-        for (name, identifier) in types {
-            guard let qType = HKObjectType.quantityType(forIdentifier: identifier) else { continue }
-            group.enter()
-            let query = HKSampleQuery(sampleType: qType, predicate: predicate, limit: 1, sortDescriptors: nil) { _, samples, _ in
-                if let s = samples?.first as? HKQuantitySample {
-                    let value = s.quantity.doubleValue(for: .percent())
-                    results[name] = value
+        // Build metrics map keyed by canonical names (steps, sleep, heartRate, etc.)
+        var metrics: [String: Any] = [:]
+
+        // Map metric IDs to canonical names
+        let metricNameMap: [String: String] = [
+            "stepCount": "steps",
+            "activeEnergyBurned": "activeEnergy",
+            "basalEnergyBurned": "basalEnergy",
+            "distanceWalkingRunning": "distanceWalkingRunning",
+            "distanceSwimming": "distanceSwimming",
+            "swimmingStrokeCount": "swimmingStrokes",
+            "vo2Max": "vo2Max",
+            "heartRate": "heartRate",
+            "restingHeartRate": "heartRate",       // merged under heartRate
+            "walkingHeartRateAverage": "heartRate",
+            "heartRateVariabilitySDNN": "hrv",
+            "bodyMass": "weight",
+            "height": "height",
+            "bodyFatPercentage": "bodyComposition",
+            "leanBodyMass": "bodyComposition",
+            "bodyMassIndex": "bodyComposition",
+            "respiratoryRate": "respiratoryRate",
+            "bloodGlucose": "bloodGlucose",
+            "bloodPressureSystolic": "bloodPressure",
+            "bloodPressureDiastolic": "bloodPressure",
+            "oxygenSaturation": "oxygenSaturation",
+            "runningSpeed": "runningSpeed",
+            "runningPower": "runningPower",
+            "dietaryEnergyConsumed": "nutrition",
+            "dietaryProtein": "nutrition",
+            "dietaryCarbohydrates": "nutrition",
+            "dietaryFatTotal": "nutrition",
+            "dietaryFiber": "nutrition",
+            "dietarySugar": "nutrition",
+            "dietarySodium": "nutrition",
+            "dietaryWater": "dietaryWater",
+        ]
+
+        // Process accumulated metrics
+        for (metricId, metricData) in syncMetrics {
+            guard let canonicalName = metricNameMap[metricId] else { continue }
+            if metrics[canonicalName] == nil {
+                metrics[canonicalName] = [:]
+            }
+            if var existing = metrics[canonicalName] as? [String: Any], var newData = metricData as? [String: Any] {
+                // Merge: prefer higher total for cumulative types
+                if let oldTotal = existing["total"] as? Double, let newTotal = newData["total"] as? Double {
+                    newData["total"] = oldTotal + newTotal
                 }
-                group.leave()
+                existing.merge(newData) { _, new in new }
+                metrics[canonicalName] = existing
+            } else {
+                metrics[canonicalName] = metricData
             }
-            healthStore.execute(query)
         }
 
-        group.notify(queue: .main) {
-            if results.isEmpty { completion(nil, nil); return }
-            let data: [String: Any] = [
-                "bodyFatPercentage": results["bodyFat"] ?? 0,
-                "leanBodyMass": results["leanMass"] ?? 0,
-                "bmi": results["bmi"] ?? 0,
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("bodyComp_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? "bodyFat \(String(format: "%.1f", results["bodyFat"] as? Double ?? 0))%, BMI \(String(format: "%.1f", results["bmi"] as? Double ?? 0))" : nil, error)
+        // Add workouts array
+        if !syncWorkouts.isEmpty {
+            metrics["workouts"] = syncWorkouts
+        }
+
+        document["metrics"] = metrics
+
+        let docRef = db.collection("kirt").document("daily").collection(todayStr).document("daily")
+
+        docRef.setData(document, merge: true) { error in
+            if let error = error {
+                print("Firestore upsert error: \(error)")
+                completion(false)
+            } else {
+                print("Batch upsert success: \(todayStr), \(metrics.count) metric categories")
+                completion(true)
             }
         }
     }
-
-    // MARK: - Water
-
-    private func syncWater(_ startDate: Date, _ endDate: Date, completion: @escaping (Any?, Error?) -> Void) {
-        guard let type = HKObjectType.quantityType(forIdentifier: .dietaryWater) else {
-            completion(nil, nil); return
-        }
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
-        let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
-            if let error = error { completion(nil, error); return }
-            let liters = result?.sumQuantity()?.doubleValue(for: .liter()) ?? 0
-            let data: [String: Any] = [
-                "value": liters, "unit": "L",
-                "startDate": ISO8601DateFormatter().string(from: startDate),
-                "timestamp": FieldValue.serverTimestamp()
-            ]
-            self.db.collection("healthData").document("water_\(Int(Date().timeIntervalSince1970))").setData(data) { error in
-                completion(error == nil ? String(format: "%.1f L", liters) : nil, error)
-            }
-        }
-        healthStore.execute(query)
-    }
-
-
 }
