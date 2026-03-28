@@ -36,8 +36,16 @@ final class KirtHealthSyncUITests: XCTestCase {
             }
         }
 
-        // Wait for mock data to be written (async in app)
-        sleep(5)
+        // Tap "Add Mock Data" to write test data to HealthKit
+        let addMockButton = XCUIApplication().buttons["Add Mock Data"]
+        if addMockButton.waitForExistence(timeout: 10) {
+            addMockButton.tap()
+            print("Tapped Add Mock Data")
+            // Wait for mock data to be written to HealthKit (async)
+            sleep(5)
+        } else {
+            print("Add Mock Data button not found")
+        }
 
         // Tap Sync Now
         let syncButton = XCUIApplication().buttons["Sync Now"]

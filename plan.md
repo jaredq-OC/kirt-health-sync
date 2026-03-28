@@ -70,3 +70,22 @@ Automated iteration using UITest (XCTest) to click buttons in the iOS Simulator.
 - **Firestore path:** kirt/daily/{date}/daily
 - **GitHub repo:** https://github.com/jaredq-OC/kirt-health-sync
 - **Push method:** GitHub API (git CLI times out)
+
+## [2026-03-28 19:43 AEDT] Cron updated to plan-aware
+- Cron now reads plan.md before every run (not just on new commits)
+- Cron updates plan.md after every run with results
+- Cron no longer exits silently after failures
+- Cron uses UITest approach (xcodebuild test)
+- Next action: Run UITest, verify metrics in Firebase
+
+## [2026-03-28 19:50 UTC] Run
+Commit: 1f9d751802fdf42d74bf4e641ebab70d48f711c8
+Build: PASS
+UITest: PASS
+Firebase: metrics_0 (no data written - app mock data not tapped in UITest)
+
+## [2026-03-28 19:51] Iteration run
+**Commit:** 
+**UITest:** Test passed (1 test, 0 failures)
+**Firebase metrics:** 0 (no data — UITest missing Add Mock Data click)
+**Action taken:** Updated UITests/UITests.swift to click "Add Mock Data" before "Sync Now"
