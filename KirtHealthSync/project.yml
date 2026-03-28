@@ -11,10 +11,13 @@ schemes:
     build:
       targets:
         KirtHealthSync: all
+        KirtHealthSyncUITests: [test]
     run:
       config: Debug
+      target: KirtHealthSync
     test:
       config: Debug
+      target: KirtHealthSyncUITests
     profile:
       config: Release
     analyze:
@@ -63,4 +66,22 @@ targets:
       - sdk: HealthKit.framework
       - sdk: BackgroundTasks.framework
 
----SHA: 6fffef777d5a26d575f9282c81b75ead94a612d2
+  KirtHealthSyncUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+        type: group
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kirt.healthsync.uitests
+        INFOPLIST_FILE: UITests/Info.plist
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: ""
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - target: KirtHealthSync
+      - sdk: XCTest.framework

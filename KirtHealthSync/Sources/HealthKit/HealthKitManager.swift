@@ -690,5 +690,81 @@ private func writeDebugSnapshot(metrics: [String: Any], error: Error?) {
     }
 }
 
+    // MARK: - Debug: Write Mock HealthKit Data
+    func writeDebugMockData(completion: @escaping (Bool, Error?) -> Void) {
+        let writeTypes: Set<HKSampleType> = [
+            HKQuantityType.quantityType(forIdentifier: .bodyMass)!,
+            HKQuantityType.quantityType(forIdentifier: .restingHeartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .stepCount)!,
+            HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
+            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .vo2Max)!,
+            HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)!,
+            HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned)!,
+        ]
 
+        let readTypes = buildReadTypes()
+        healthStore.requestAuthorization(toShare: writeTypes, read: readTypes) { [weak self] success, error in
+            guard let self = self, success else {
+                completion(false, error)
+                return
+            }
+
+            let now = Date()
+            var samples: [HKSample] = []
+
+            if let weightType = HKQuantityType.quantityType(forIdentifier: .bodyMass) {
+                let weightQty = HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 82.5)
+                let weightSample = HKQuantitySample(type: weightType, quantity: weightQty, start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(-3600))
+                samples.append(weightSample)
+            }
+
+            if let hrType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) {
+                let hrQty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 58)
+                let hrSample = HKQuantitySample(type: hrType, quantity: hrQty, start: now.addingTimeInterval(-1800), end: now.addingTimeInterval(-1800))
+                samples.append(hrSample)
+            }
+
+            if let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
+                let stepsQty = HKQuantity(unit: .count(), doubleValue: 5000)
+                let stepsSample = HKQuantitySample(type: stepsType, quantity: stepsQty, start: now.addingTimeInterval(-7200), end: now.addingTimeInterval(-3600))
+                samples.append(stepsSample)
+            }
+
+            if let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
+                let energyQty = HKQuantity(unit: .kilocalorie(), doubleValue: 620)
+                let energySample = HKQuantitySample(type: energyType, quantity: energyQty, start: now.addingTimeInterval(-7200), end: now.addingTimeInterval(-3600))
+                samples.append(energySample)
+            }
+
+            if let hr2Type = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+                let hr2Qty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 65)
+                let hr2Sample = HKQuantitySample(type: hr2Type, quantity: hr2Qty, start: now.addingTimeInterval(-1200), end: now.addingTimeInterval(-1200))
+                samples.append(hr2Sample)
+            }
+
+            if let vo2Type = HKQuantityType.quantityType(forIdentifier: .vo2Max) {
+                let vo2Qty = HKQuantity(unit: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)).unitDivided(by: .minute()), doubleValue: 45)
+                let vo2Sample = HKQuantitySample(type: vo2Type, quantity: vo2Qty, start: now.addingTimeInterval(-300), end: now.addingTimeInterval(-300))
+                samples.append(vo2Sample)
+            }
+
+            self.healthStore.save(samples) { success, error in
+                print("[writeDebugMockData] Saved \(samples.count) samples, success=\(success)")
+                completion(success, error)
+            }
+        }
+    }
+
+    private func buildReadTypes() -> Set<HKObjectType> {
+        var types: Set<HKObjectType> = []
+        for id in anchoredTypes {
+            if let t = HKObjectType.quantityType(forIdentifier: id) {
+                types.insert(t)
+            }
+        }
+        types.insert(HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!)
+        types.insert(HKObjectType.workoutType())
+        return types
+    }
 }

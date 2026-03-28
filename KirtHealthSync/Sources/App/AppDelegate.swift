@@ -12,11 +12,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Request HealthKit authorization
         HealthKitManager.shared.requestAuthorization { success, error in
             if success {
-                print("HealthKit authorization granted")
-                // Start background sync once authorized
-                HealthKitManager.shared.startBackgroundSync()
+                print("[AppDelegate] HealthKit authorization granted")
+                // Write mock data first so there's data to sync
+                print("[AppDelegate] Writing mock HealthKit data...")
+                HealthKitManager.shared.writeDebugMockData { mockSuccess, mockError in
+                    print("[AppDelegate] Mock data write: \(mockSuccess), error: \(mockError?.localizedDescription ?? "none")")
+                    print("[AppDelegate] Starting background sync...")
+                    HealthKitManager.shared.startBackgroundSync()
+                }
             } else if let error = error {
-                print("HealthKit authorization failed: \(error.localizedDescription)")
+                print("[AppDelegate] HealthKit authorization failed: \(error.localizedDescription)")
             }
         }
 

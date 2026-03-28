@@ -129,3 +129,17 @@ PHASE 2.1 + 2.2 STARTED: Fri Mar 27 16:34:25 AEDT 2026
 **Manifest:** Updated — Phase 2.1 ✓, Phase 2.2 ✓, Current Blocker section removed
 
 **Status:** ALL PHASES COMPLETE
+
+---
+
+## Attempt: 2026-03-28 11:04 AEDT — Health Sync Iteration (cron)
+
+**Commit:** 9a53bff2a771b86da9b1a7789f89a458e882e371
+**Build:** ✓ BUILD SUCCEEDED
+**Install/Launch:** ✓ Installed and launched com.kirt.healthsync on iPhone 17 Pro (A3BD8F71)
+**Screenshot:** macOS screencapture shows mostly transparent/empty display — headless MacBook display not rendering in a way that captures to framebuffer
+**Permission dialog:** Could not dismiss via simctl privacy grant (operation not permitted). HealthKit permission dialog likely blocking.
+**Firebase:** No data synced today (syncedAt=none, metrics=0)
+**Issue:** Headless MacBook with closed lid — screencapture returns empty display. Cannot interact with HealthKit permission dialog programmatically.
+**Status:** Build succeeded, app installed, but HealthKit permission dialog requires manual interaction or alternative approach (e.g., pre-authorize via simctl before first run, or use Xcode previews/signpost)
+
