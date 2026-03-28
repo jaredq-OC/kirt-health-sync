@@ -768,3 +768,61 @@ private func writeDebugSnapshot(metrics: [String: Any], error: Error?) {
         return types
     }
 }
+
+    // MARK: - Debug: Direct HK Query (non-anchored, for testing)
+    func debugQueryAllData(completion: @escaping ([String: Any]) -> Void) {
+        let types: [(String, HKQuantityTypeIdentifier)] = [
+            ("bodyMass", .bodyMass),
+            ("restingHeartRate", .restingHeartRate),
+            ("stepCount", .stepCount),
+            ("activeEnergyBurned", .activeEnergyBurned),
+
+    // MARK: - Debug: Direct HK Query (non-anchored, for testing)
+    func debugQueryAllData(completion: @escaping ([String: Any]) -> Void) {
+        let types: [(String, HKQuantityTypeIdentifier)] = [
+            ("bodyMass", .bodyMass),
+            ("restingHeartRate", .restingHeartRate),
+            ("stepCount", .stepCount),
+            ("activeEnergyBurned", .activeEnergyBurned),
+            ("heartRate", .heartRate),
+            ("vo2Max", .vo2Max),
+        ]
+        var results: [String: Any] = [:]
+        let group = DispatchGroup()
+        for (name, id) in types {
+            guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
+            group.enter()
+            let now = Date()
+            let startOfDay = Calendar.current.startOfDay(for: now)
+            let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
+            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { [weak self] _, samples, error in
+                defer { group.leave() }
+                guard let self = self else { return }
+                var entry: [String: Any] = ["count": samples?.count ?? 0]
+                if let samples = samples as? [HKQuantitySample], !samples.isEmpty {
+                    let latest = samples.last!
+                    entry["value"] = latest.quantity.doubleValue(for: self.debugUnitFor(type: type))
+                    entry["date"] = latest.endDate.description
+                }
+                results[name] = entry
+                print("[debugQuery] \(name): \(entry)")
+            }
+            healthStore.execute(query)
+        }
+        group.notify(queue: .main) {
+            print("[debugQuery] All results: \(results)")
+            completion(results)
+        }
+    }
+
+    private func debugUnitFor(type: HKQuantityType) -> HKUnit {
+        switch type.identifier {
+        case HKQuantityTypeIdentifier.bodyMass.rawValue: return .gramUnit(with: .kilo)
+        case HKQuantityTypeIdentifier.restingHeartRate.rawValue, HKQuantityTypeIdentifier.heartRate.rawValue: return HKUnit.count().unitDivided(by: .minute())
+        case HKQuantityTypeIdentifier.stepCount.rawValue: return .count()
+        case HKQuantityTypeIdentifier.activeEnergyBurned.rawValue: return .kilocalorie()
+        case HKQuantityTypeIdentifier.vo2Max.rawValue: return HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)).unitDivided(by: .minute())
+        default: return .count()
+        }
+    }
+}

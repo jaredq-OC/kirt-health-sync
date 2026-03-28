@@ -13,18 +13,27 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         HealthKitManager.shared.requestAuthorization { success, error in
             if success {
                 print("[AppDelegate] HealthKit authorization granted")
-                // Write mock data first, THEN sync — completion handler ensures ordering
+                // Write mock data first, THEN sync
                 print("[AppDelegate] Writing mock HealthKit data...")
                 HealthKitManager.shared.writeDebugMockData { mockSuccess, mockError in
                     if mockSuccess {
-                        print("[AppDelegate] Mock data written successfully, starting sync...")
+                        print("[AppDelegate] Mock data written successfully")
                     } else {
-                        print("[AppDelegate] Mock data failed: \(mockError?.localizedDescription ?? "unknown"), syncing anyway...")
+                        print("[AppDelegate] Mock data failed: \(mockError?.localizedDescription ?? "unknown")")
                     }
-                    // Sync 5s after mock data is written — gives HK time to index the saved samples
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                        print("[AppDelegate] Calling startBackgroundSync (5s after mock data)...")
-                        HealthKitManager.shared.startBackgroundSync()
+                    // Give HK a moment to index the saved samples
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        // Debug: query what HK actually has
+                        print("[AppDelegate] Debug querying HK...")
+                        HealthKitManager.shared.debugQueryAllData { results in
+                            print("[AppDelegate] HK Debug results: \(results)")
+                            // Check if we got any data
+                            let hasData = results.values.contains { ($0 as? [String: Any])?["count"] as? Int ?? 0 > 0 }
+                            print("[AppDelegate] HK has data: \(hasData)")
+                            // Now start the real sync
+                            print("[AppDelegate] Starting sync...")
+                            HealthKitManager.shared.startBackgroundSync()
+                        }
                     }
                 }
             } else if let error = error {
