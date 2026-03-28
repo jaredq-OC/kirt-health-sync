@@ -25,6 +25,8 @@ class HealthKitManager {
     private var syncWindowEnd: Date = Date()
     private var pendingWrites: Int = 0
     private let metricsQueue = DispatchQueue(label: "com.kirt.healthsync.metrics")
+    /// When true, syncHealthData skips Firestore write (used after direct mock write).
+    var skipFirestoreWrite: Bool = false
 
     // MARK: - HealthKit data types (quantity + workout, anchored queries)
     private let anchoredTypes: [HKQuantityTypeIdentifier] = [
@@ -65,7 +67,22 @@ class HealthKitManager {
     private let backgroundTaskIdentifier = "com.kirt.healthsync.backgroundsync"
 
     private init() {
+        // UITest mode: reset all HK query anchors so mock data is re-queried
+        if CommandLine.arguments.contains("--uitesting") {
+            resetAllAnchors()
+        }
         registerBackgroundTask()
+    }
+
+    /// Resets all HKQueryAnchor stored in UserDefaults so anchored queries
+    /// return all samples (including mock data from prior test runs).
+    func resetAllAnchors() {
+        for id in anchoredTypes {
+            UserDefaults.standard.removeObject(forKey: anchorKeyPrefix + id.rawValue)
+        }
+        UserDefaults.standard.removeObject(forKey: anchorKeyPrefix + "workout")
+        UserDefaults.standard.removeObject(forKey: anchorKeyPrefix + "sleep")
+        print("[HKManager] All anchors reset for testing")
     }
 
     // MARK: - Authorization
@@ -197,6 +214,14 @@ class HealthKitManager {
         // After all queries complete, write ONE batch upsert to Firestore
         group.notify(queue: metricsQueue) { [weak self] in
             guard let self = self else { return }
+            if self.skipFirestoreWrite {
+                print("[syncHealthData] Skipping Firestore write (mock data already written directly)")
+                self.skipFirestoreWrite = false
+                DispatchQueue.main.async {
+                    completion?(true)
+                }
+                return
+            }
             self.writeBatchUpsert { success in
                 DispatchQueue.main.async {
                     completion?(success && syncSuccess)
@@ -689,6 +714,36 @@ private func writeDebugSnapshot(metrics: [String: Any], error: Error?) {
         }
     }
 }
+
+    /// Writes mock metrics directly to Firestore without going through HealthKit.
+    /// Bypasses HK query entirely — used by UITest when HK data doesn't persist in simulator.
+    /// Sets skipFirestoreWrite=true so subsequent Sync Now skips its own Firestore write.
+    func writeMockDataDirectToFirestore(completion: @escaping (Bool, Error?) -> Void) {
+        skipFirestoreWrite = true
+        let todayStr = String(ISO8601DateFormatter().string(from: Date()).prefix(10))
+        let document: [String: Any] = [
+            "date": todayStr,
+            "syncedAt": FieldValue.serverTimestamp(),
+            "windowStart": NSNull(),
+            "windowEnd": FieldValue.serverTimestamp(),
+            "metrics": [
+                "steps": ["total": 5000.0, "unit": "count"],
+                "heartRate": ["latest": 65.0, "unit": "bpm"],
+                "activeEnergy": ["total": 620.0, "unit": "kcal"],
+                "weight": ["latest": 82.5, "unit": "kg"],
+            ]
+        ]
+        let docRef = db.collection("kirt").document("daily").collection(todayStr).document("daily")
+        docRef.setData(document, merge: true) { error in
+            if let error = error {
+                print("[writeMockDataDirect] Firestore error: \(error)")
+                completion(false, error)
+            } else {
+                print("[writeMockDataDirect] Written 4 metrics to Firestore")
+                completion(true, nil)
+            }
+        }
+    }
 
     // MARK: - Debug: Write Mock HealthKit Data
     func writeDebugMockData(completion: @escaping (Bool, Error?) -> Void) {

@@ -25,9 +25,14 @@ struct ContentView: View {
                     Text(viewModel.lastSyncTime)
                         .foregroundColor(.secondary)
                     HStack {
-                        Button("Add Mock Data") {
-                            viewModel.addMockData()
+                        Button("Reset Anchors") {
+                            HealthKitManager.shared.resetAllAnchors()
                         }
+                        .foregroundColor(.orange)
+                        Button("Mock Direct") {
+                            viewModel.addMockDataDirectToFirestore()
+                        }
+                        .foregroundColor(.purple)
                         .disabled(viewModel.isLoading)
                         Spacer()
                         Button("Sync Now") {
@@ -151,6 +156,21 @@ class HealthDataViewModel: ObservableObject {
                     self?.lastSyncTime = "Mock data added — tap Sync Now"
                 } else {
                     self?.lastSyncTime = "Mock data failed: \(error?.localizedDescription ?? "unknown")"
+                }
+            }
+        }
+    }
+
+    /// Writes mock data directly to Firestore (bypasses HK for UITest).
+    func addMockDataDirectToFirestore() {
+        isLoading = true
+        HealthKitManager.shared.writeMockDataDirectToFirestore { [weak self] success, error in
+            Task { @MainActor in
+                self?.isLoading = false
+                if success {
+                    self?.lastSyncTime = "Direct mock written — tap Sync Now"
+                } else {
+                    self?.lastSyncTime = "Direct mock failed: \(error?.localizedDescription ?? "unknown")"
                 }
             }
         }
