@@ -1,0 +1,157 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project /Users/jared/Projects/kirt-health-sync/KirtHealthSync/KirtHealthSync.xcodeproj -scheme KirtHealthSyncUITests -configuration Debug -destination id=DD1443D2-B7FE-4A64-8ED6-FB4F4C5E0336 -derivedDataPath /Users/jared/Library/Developer/Xcode/DerivedData/KirtHealthSync-hiqvmpaybwqbwwgiuuhiwdgtqhrv/Debug-iphonesimulator test
+
+Resolve Package Graph
+
+Fetching from https://github.com/apple/swift-protobuf.git (cached)
+
+Fetching from https://github.com/google/GoogleDataTransport.git (cached)
+
+Fetching from https://github.com/google/gtm-session-fetcher.git (cached)
+
+Fetching from https://github.com/google/app-check.git (cached)
+
+Fetching from https://github.com/google/abseil-cpp-binary.git (cached)
+
+Fetching from https://github.com/firebase/leveldb.git (cached)
+
+Fetching from https://github.com/google/promises.git (cached)
+
+Fetching from https://github.com/firebase/firebase-ios-sdk (cached)
+
+Fetching from https://github.com/google/GoogleUtilities.git (cached)
+
+Fetching from https://github.com/google/grpc-binary.git (cached)
+
+Fetching from https://github.com/googleads/google-ads-on-device-conversion-ios-sdk (cached)
+
+Fetching from https://github.com/google/GoogleAppMeasurement.git (cached)
+
+Fetching from https://github.com/firebase/nanopb.git (cached)
+
+Fetching from https://github.com/google/interop-ios-for-google-sdks.git (cached)
+
+Creating working copy of package ‘promises’
+
+Creating working copy of package ‘GoogleDataTransport’
+
+Creating working copy of package ‘nanopb’
+
+Creating working copy of package ‘abseil-cpp-binary’
+
+Creating working copy of package ‘swift-protobuf’
+
+Creating working copy of package ‘gtm-session-fetcher’
+
+Creating working copy of package ‘firebase-ios-sdk’
+
+Creating working copy of package ‘GoogleUtilities’
+
+Creating working copy of package ‘app-check’
+
+Creating working copy of package ‘interop-ios-for-google-sdks’
+
+Checking out 8.1.0 of package ‘GoogleUtilities’
+
+Checking out 10.1.0 of package ‘GoogleDataTransport’
+
+Checking out 4.5.0 of package ‘gtm-session-fetcher’
+
+Checking out 2.30910.0 of package ‘nanopb’
+
+Checking out 11.2.0 of package ‘app-check’
+
+Checking out 101.0.0 of package ‘interop-ios-for-google-sdks’
+
+Creating working copy of package ‘leveldb’
+
+Creating working copy of package ‘grpc-binary’
+
+Creating working copy of package ‘google-ads-on-device-conversion-ios-sdk’
+
+Checking out 1.22.5 of package ‘leveldb’
+
+Checking out 1.2024072200.0 of package ‘abseil-cpp-binary’
+
+Checking out 11.15.0 of package ‘firebase-ios-sdk’
+
+Checking out 2.4.0 of package ‘promises’
+
+Checking out 1.36.1 of package ‘swift-protobuf’
+
+Creating working copy of package ‘GoogleAppMeasurement’
+
+Checking out 1.69.1 of package ‘grpc-binary’
+
+Checking out 2.3.0 of package ‘google-ads-on-device-conversion-ios-sdk’
+
+Checking out 11.15.0 of package ‘GoogleAppMeasurement’
+
+
+Resolved source packages:
+  GoogleAdsOnDeviceConversion: https://github.com/googleads/google-ads-on-device-conversion-ios-sdk @ 2.3.0
+  Firebase: https://github.com/firebase/firebase-ios-sdk @ 11.15.0
+  InteropForGoogle: https://github.com/google/interop-ios-for-google-sdks.git @ 101.0.0
+  leveldb: https://github.com/firebase/leveldb.git @ 1.22.5
+  GoogleUtilities: https://github.com/google/GoogleUtilities.git @ 8.1.0
+  GoogleAppMeasurement: https://github.com/google/GoogleAppMeasurement.git @ 11.15.0
+  GTMSessionFetcher: https://github.com/google/gtm-session-fetcher.git @ 4.5.0
+  SwiftProtobuf: https://github.com/apple/swift-protobuf.git @ 1.36.1
+  GoogleDataTransport: https://github.com/google/GoogleDataTransport.git @ 10.1.0
+  AppCheck: https://github.com/google/app-check.git @ 11.2.0
+  nanopb: https://github.com/firebase/nanopb.git @ 2.30910.0
+  gRPC: https://github.com/google/grpc-binary.git @ 1.69.1
+  Promises: https://github.com/google/promises.git @ 2.4.0
+  abseil: https://github.com/google/abseil-cpp-binary.git @ 1.2024072200.0
+
+2026-03-31 23:18:31.885 xcodebuild[86222:7137504] Writing error result bundle to /var/folders/zs/j78_wjy144l28mj_gylhq49c0000gp/T/ResultBundle_2026-31-03_23-18-0031.xcresult
+xcodebuild: error: The project named "KirtHealthSync" does not contain a scheme named "KirtHealthSyncUITests". The "-list" option can be used to find the names of the schemes in the project.
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project /Users/jared/Projects/kirt-health-sync/KirtHealthSync/KirtHealthSync.xcodeproj -scheme KirtHealthSyncUITests -configuration Debug -destination id=DD1443D2-B7FE-4A64-8ED6-FB4F4C5E0336 -derivedDataPath /Users/jared/Library/Developer/Xcode/DerivedData/KirtHealthSync-hiqvmpaybwqbwwgiuuhiwdgtqhrv/Debug-iphonesimulator test
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  Promises: https://github.com/google/promises.git @ 2.4.0
+  GoogleUtilities: https://github.com/google/GoogleUtilities.git @ 8.1.0
+  GoogleAdsOnDeviceConversion: https://github.com/googleads/google-ads-on-device-conversion-ios-sdk @ 2.3.0
+  InteropForGoogle: https://github.com/google/interop-ios-for-google-sdks.git @ 101.0.0
+  abseil: https://github.com/google/abseil-cpp-binary.git @ 1.2024072200.0
+  gRPC: https://github.com/google/grpc-binary.git @ 1.69.1
+  GoogleAppMeasurement: https://github.com/google/GoogleAppMeasurement.git @ 11.15.0
+  Firebase: https://github.com/firebase/firebase-ios-sdk @ 11.15.0
+  SwiftProtobuf: https://github.com/apple/swift-protobuf.git @ 1.36.1
+  leveldb: https://github.com/firebase/leveldb.git @ 1.22.5
+  GTMSessionFetcher: https://github.com/google/gtm-session-fetcher.git @ 4.5.0
+  GoogleDataTransport: https://github.com/google/GoogleDataTransport.git @ 10.1.0
+  nanopb: https://github.com/firebase/nanopb.git @ 2.30910.0
+  AppCheck: https://github.com/google/app-check.git @ 11.2.0
+
+2026-04-01 01:05:54.747 xcodebuild[94233:7264620] Writing error result bundle to /var/folders/zs/j78_wjy144l28mj_gylhq49c0000gp/T/ResultBundle_2026-01-04_01-05-0054.xcresult
+xcodebuild: error: The project named "KirtHealthSync" does not contain a scheme named "KirtHealthSyncUITests". The "-list" option can be used to find the names of the schemes in the project.
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project /Users/jared/Projects/kirt-health-sync/KirtHealthSync/KirtHealthSync.xcodeproj -scheme KirtHealthSyncUITests -configuration Debug -destination id=DD1443D2-B7FE-4A64-8ED6-FB4F4C5E0336 -derivedDataPath /Users/jared/Library/Developer/Xcode/DerivedData/KirtHealthSync-hiqvmpaybwqbwwgiuuhiwdgtqhrv/Debug-iphonesimulator test
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  GTMSessionFetcher: https://github.com/google/gtm-session-fetcher.git @ 4.5.0
+  AppCheck: https://github.com/google/app-check.git @ 11.2.0
+  leveldb: https://github.com/firebase/leveldb.git @ 1.22.5
+  GoogleAppMeasurement: https://github.com/google/GoogleAppMeasurement.git @ 11.15.0
+  InteropForGoogle: https://github.com/google/interop-ios-for-google-sdks.git @ 101.0.0
+  gRPC: https://github.com/google/grpc-binary.git @ 1.69.1
+  abseil: https://github.com/google/abseil-cpp-binary.git @ 1.2024072200.0
+  GoogleAdsOnDeviceConversion: https://github.com/googleads/google-ads-on-device-conversion-ios-sdk @ 2.3.0
+  SwiftProtobuf: https://github.com/apple/swift-protobuf.git @ 1.36.1
+  nanopb: https://github.com/firebase/nanopb.git @ 2.30910.0
+  Firebase: https://github.com/firebase/firebase-ios-sdk @ 11.15.0
+  GoogleUtilities: https://github.com/google/GoogleUtilities.git @ 8.1.0
+  GoogleDataTransport: https://github.com/google/GoogleDataTransport.git @ 10.1.0
+  Promises: https://github.com/google/promises.git @ 2.4.0
+
+2026-04-01 01:17:38.511 xcodebuild[94946:7273786] Writing error result bundle to /var/folders/zs/j78_wjy144l28mj_gylhq49c0000gp/T/ResultBundle_2026-01-04_01-17-0038.xcresult
+xcodebuild: error: Scheme KirtHealthSyncUITests is not currently configured for the test action.
+

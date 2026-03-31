@@ -1,5 +1,6 @@
 import Foundation
 import HealthKit
+import FirebaseCore
 import FirebaseFirestore
 import BackgroundTasks
 
@@ -7,15 +8,42 @@ class HealthKitManager {
     static let shared = HealthKitManager()
 
     private let healthStore = HKHealthStore()
-    private let db = Firestore.firestore()
+
+    // MARK: - Firestore reference (lazy, guarded against suspended Firebase)
+    // Uses a separate _dbInit sentinel to track whether Firestore has been
+    // safely initialized without throwing.
+    private static var _dbInitAttempted = false
+    private static var _dbInstance: Firestore? = nil
+
+    private var db: Firestore? {
+        get {
+            if AppDelegate.isUITesting { return nil }
+            if HealthKitManager._dbInitAttempted { return HealthKitManager._dbInstance }
+            HealthKitManager._dbInitAttempted = true
+            // Use ObjC helper that catches NSException from Firebase SDK
+            HealthKitManager._dbInstance = FIRSafeInit.safeFirestore()
+            return HealthKitManager._dbInstance
+        }
+    }
 
     // MARK: - UserDefaults keys for anchors
     private let anchorKeyPrefix = "HKManager_Anchor_"
+    private let lastSyncTimeKey = "HKManager_LastSyncTime"
 
     // MARK: - Firestore collection path
     private var dailyCollectionPath: String {
         let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
         return "kirt/daily/\(today)"
+    }
+
+    var lastSyncTimeString: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        if let timestamp = UserDefaults.standard.object(forKey: lastSyncTimeKey) as? Date {
+            return formatter.string(from: timestamp)
+        }
+        return "Never"
     }
 
     // MARK: - Batch metrics accumulator
@@ -646,7 +674,7 @@ class HealthKitManager {
 
         document["metrics"] = metrics
 
-        let docRef = db.collection("kirt").document("daily").collection(todayStr).document("daily")
+        let docRef = db!.collection("kirt").document("daily").collection(todayStr).document("daily")
 
         docRef.setData(document, merge: true) { error in
             if let error = error {
@@ -654,6 +682,7 @@ class HealthKitManager {
                 completion(false)
             } else {
                 print("Batch upsert success: \(todayStr), \(metrics.count) metric categories")
+                UserDefaults.standard.set(Date(), forKey: self.lastSyncTimeKey)
                 completion(true)
             }
         }

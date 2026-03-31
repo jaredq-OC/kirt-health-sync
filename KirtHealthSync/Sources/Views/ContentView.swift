@@ -49,6 +49,13 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Kirt Health Sync")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink(destination: SettingsView()) {
+                        Image(systemName: "gear")
+                    }
+                }
+            }
             .onAppear {
                 viewModel.loadData()
             }
@@ -67,13 +74,18 @@ class HealthDataViewModel: ObservableObject {
     @Published var nutritionData: NutritionData = NutritionData()
     @Published var isLoading: Bool = false
 
+    private let isUITestMode: Bool
+
     private let db: Firestore? = {
-        // Skip Firestore in test environment (XCTest environment is set by the test runner)
-        if ProcessInfo.processInfo.environment["XCTest"] != nil { return nil }
-        if ProcessInfo.processInfo.arguments.contains("--uitesting") { return nil }
-        guard FirebaseApp.app() != nil else { return nil }
-        return Firestore.firestore()
+        // Skip Firestore entirely in test/uitesting mode
+        if AppDelegate.isUITesting { return nil }
+        // Use ObjC helper that catches NSException from Firebase SDK
+        return FIRSafeInit.safeFirestore()
     }()
+
+    init(isUITestMode: Bool = false) {
+        self.isUITestMode = isUITestMode || AppDelegate.isUITesting
+    }
 
     private var todayDateString: String {
         let formatter = DateFormatter()
@@ -82,6 +94,11 @@ class HealthDataViewModel: ObservableObject {
     }
 
     func loadData() {
+        // In test mode, use mock data to allow UI testing
+        if isUITestMode {
+            loadMockData()
+            return
+        }
         guard let db = db else { return }
         let docPath = "kirt/daily/\(todayDateString)"
         var docRef: DocumentReference? = nil
@@ -158,7 +175,33 @@ class HealthDataViewModel: ObservableObject {
         }
     }
 
+    /// Loads mock data for UI testing — simulates what HealthKit + Firestore would return
+    func loadMockData() {
+        todaySteps = 8420
+        todaySleepMinutes = 420
+        latestWeight = 82.5
+        latestRestingHR = 58
+        nutritionData = NutritionData(calories: 2150, protein: 148.2, carbs: 215.5, fat: 72.8)
+        recentWorkouts = [
+            WorkoutItem(activityType: "Cycling", duration: 30 * 60, energyBurned: 620),
+            WorkoutItem(activityType: "Running", duration: 25 * 60, energyBurned: 340),
+        ]
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        lastSyncTime = formatter.string(from: Date())
+    }
+
     func syncNow() {
+        if isUITestMode {
+            // Simulate sync in test mode
+            isLoading = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.isLoading = false
+                self?.loadMockData()
+            }
+            return
+        }
         isLoading = true
         HealthKitManager.shared.syncHealthData { [weak self] result in
             Task { @MainActor in
