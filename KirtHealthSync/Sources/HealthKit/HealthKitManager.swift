@@ -1,6 +1,5 @@
 import Foundation
 import HealthKit
-import FirebaseCore
 import FirebaseFirestore
 import BackgroundTasks
 
@@ -8,36 +7,15 @@ class HealthKitManager {
     static let shared = HealthKitManager()
 
     private let healthStore = HKHealthStore()
-
-    // MARK: - Firestore reference (lazy, guarded against suspended Firebase)
-    // Uses a separate _dbInit sentinel to track whether Firestore has been
-    // safely initialized without throwing.
-    private static var _dbInitAttempted = false
-    private static var _dbInstance: Firestore? = nil
-
-    private var db: Firestore? {
-        get {
-            if AppDelegate.isUITesting { return nil }
-            if HealthKitManager._dbInitAttempted { return HealthKitManager._dbInstance }
-            HealthKitManager._dbInitAttempted = true
-            // Use ObjC helper that catches NSException from Firebase SDK
-            HealthKitManager._dbInstance = FIRSafeInit.safeFirestore()
-            return HealthKitManager._dbInstance
-        }
-    }
+    private let db = Firestore.firestore()
 
     // MARK: - UserDefaults keys for anchors
     private let anchorKeyPrefix = "HKManager_Anchor_"
-    private let lastSyncTimeKey = "HKManager_LastSyncTime"
 
-    var lastSyncTimeString: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        if let timestamp = UserDefaults.standard.object(forKey: lastSyncTimeKey) as? Date {
-            return formatter.string(from: timestamp)
-        }
-        return "Never"
+    // MARK: - Firestore collection path
+    private var dailyCollectionPath: String {
+        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        return "kirt/daily/\(today)"
     }
 
     // MARK: - Batch metrics accumulator
@@ -47,6 +25,8 @@ class HealthKitManager {
     private var syncWindowEnd: Date = Date()
     private var pendingWrites: Int = 0
     private let metricsQueue = DispatchQueue(label: "com.kirt.healthsync.metrics")
+    /// When true, syncHealthData skips Firestore write (used after direct mock write).
+    var skipFirestoreWrite: Bool = false
 
     // MARK: - HealthKit data types (quantity + workout, anchored queries)
     private let anchoredTypes: [HKQuantityTypeIdentifier] = [
@@ -87,7 +67,22 @@ class HealthKitManager {
     private let backgroundTaskIdentifier = "com.kirt.healthsync.backgroundsync"
 
     private init() {
+        // UITest mode: reset all HK query anchors so mock data is re-queried
+        if CommandLine.arguments.contains("--uitesting") {
+            resetAllAnchors()
+        }
         registerBackgroundTask()
+    }
+
+    /// Resets all HKQueryAnchor stored in UserDefaults so anchored queries
+    /// return all samples (including mock data from prior test runs).
+    func resetAllAnchors() {
+        for id in anchoredTypes {
+            UserDefaults.standard.removeObject(forKey: anchorKeyPrefix + id.rawValue)
+        }
+        UserDefaults.standard.removeObject(forKey: anchorKeyPrefix + "workout")
+        UserDefaults.standard.removeObject(forKey: anchorKeyPrefix + "sleep")
+        print("[HKManager] All anchors reset for testing")
     }
 
     // MARK: - Authorization
@@ -219,6 +214,14 @@ class HealthKitManager {
         // After all queries complete, write ONE batch upsert to Firestore
         group.notify(queue: metricsQueue) { [weak self] in
             guard let self = self else { return }
+            if self.skipFirestoreWrite {
+                print("[syncHealthData] Skipping Firestore write (mock data already written directly)")
+                self.skipFirestoreWrite = false
+                DispatchQueue.main.async {
+                    completion?(true)
+                }
+                return
+            }
             self.writeBatchUpsert { success in
                 DispatchQueue.main.async {
                     completion?(success && syncSuccess)
@@ -464,7 +467,7 @@ class HealthKitManager {
             value = sample.quantity.doubleValue(for: .count())
             unit = "count"
         case .vo2Max:
-            value = sample.quantity.doubleValue(for: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)))
+            value = sample.quantity.doubleValue(for: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)).unitDivided(by: .minute()))
             unit = "mL/min/kg"
         case .heartRate:
             value = sample.quantity.doubleValue(for: HKUnit(from: "count/min"))
@@ -592,7 +595,7 @@ class HealthKitManager {
 
     // MARK: - Firestore Batch Upsert
 
-    /// Writes ONE document to kirt/daily/daily/{YYYY-MM-DD} containing all accumulated metrics.
+    /// Writes ONE document to kirt/daily/{YYYY-MM-DD} containing all accumulated metrics.
     /// Uses setData with merge:true so each metric field is updated without overwriting
     /// the entire document (safe for concurrent syncs).
     private func writeBatchUpsert(completion: @escaping (Bool) -> Void) {
@@ -668,7 +671,7 @@ class HealthKitManager {
 
         document["metrics"] = metrics
 
-        let docRef = db!.collection("kirt").document("daily").collection("daily").document(todayStr)
+        let docRef = db.collection("kirt/daily").document(todayStr)
 
         docRef.setData(document, merge: true) { error in
             if let error = error {
@@ -676,9 +679,196 @@ class HealthKitManager {
                 completion(false)
             } else {
                 print("Batch upsert success: \(todayStr), \(metrics.count) metric categories")
-                UserDefaults.standard.set(Date(), forKey: self.lastSyncTimeKey)
                 completion(true)
             }
+        }
+    }
+
+// MARK: - Debug
+private func writeDebugSnapshot(metrics: [String: Any], error: Error?) {
+    let db = Firestore.firestore()
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    
+    let docRef = db.collection("kirt").document("debug").collection("hk-snapshots").document()
+    var data: [String: Any] = [
+        "syncedAt": FieldValue.serverTimestamp(),
+        "deviceDate": formatter.string(from: Date()),
+        "metricsCount": metrics.count,
+        "hasError": error != nil
+    ]
+    
+    if let error = error {
+        data["error"] = error.localizedDescription
+    }
+    
+    if metrics.isEmpty {
+        data["emptyMetrics"] = true
+    } else {
+        data["metrics"] = metrics
+    }
+    
+    docRef.setData(data) { err in
+        if let err = err {
+            print("Debug snapshot write error: \(err)")
+        }
+    }
+}
+
+    /// Writes mock metrics directly to Firestore without going through HealthKit.
+    /// Bypasses HK query entirely — used by UITest when HK data doesn't persist in simulator.
+    /// Sets skipFirestoreWrite=true so subsequent Sync Now skips its own Firestore write.
+    func writeMockDataDirectToFirestore(completion: @escaping (Bool, Error?) -> Void) {
+        skipFirestoreWrite = true
+        let todayStr = String(ISO8601DateFormatter().string(from: Date()).prefix(10))
+        let document: [String: Any] = [
+            "date": todayStr,
+            "syncedAt": FieldValue.serverTimestamp(),
+            "windowStart": NSNull(),
+            "windowEnd": FieldValue.serverTimestamp(),
+            "metrics": [
+                "steps": ["total": 5000.0, "unit": "count"],
+                "heartRate": ["latest": 65.0, "unit": "bpm"],
+                "activeEnergy": ["total": 620.0, "unit": "kcal"],
+                "weight": ["latest": 82.5, "unit": "kg"],
+            ]
+        ]
+        let docRef = db.collection("kirt/daily").document(todayStr)
+        docRef.setData(document, merge: true) { error in
+            if let error = error {
+                print("[writeMockDataDirect] Firestore error: \(error)")
+                completion(false, error)
+            } else {
+                print("[writeMockDataDirect] Written 4 metrics to Firestore")
+                completion(true, nil)
+            }
+        }
+    }
+
+    // MARK: - Debug: Write Mock HealthKit Data
+    func writeDebugMockData(completion: @escaping (Bool, Error?) -> Void) {
+        let writeTypes: Set<HKSampleType> = [
+            HKQuantityType.quantityType(forIdentifier: .bodyMass)!,
+            HKQuantityType.quantityType(forIdentifier: .restingHeartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .stepCount)!,
+            HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
+            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .vo2Max)!,
+            HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)!,
+            HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned)!,
+        ]
+
+        let readTypes = buildReadTypes()
+        healthStore.requestAuthorization(toShare: writeTypes, read: readTypes) { [weak self] success, error in
+            guard let self = self, success else {
+                completion(false, error)
+                return
+            }
+
+            let now = Date()
+            var samples: [HKSample] = []
+
+            if let weightType = HKQuantityType.quantityType(forIdentifier: .bodyMass) {
+                let weightQty = HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 82.5)
+                let weightSample = HKQuantitySample(type: weightType, quantity: weightQty, start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(-3600))
+                samples.append(weightSample)
+            }
+
+            if let hrType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) {
+                let hrQty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 58)
+                let hrSample = HKQuantitySample(type: hrType, quantity: hrQty, start: now.addingTimeInterval(-1800), end: now.addingTimeInterval(-1800))
+                samples.append(hrSample)
+            }
+
+            if let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
+                let stepsQty = HKQuantity(unit: .count(), doubleValue: 5000)
+                let stepsSample = HKQuantitySample(type: stepsType, quantity: stepsQty, start: now.addingTimeInterval(-7200), end: now.addingTimeInterval(-3600))
+                samples.append(stepsSample)
+            }
+
+            if let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
+                let energyQty = HKQuantity(unit: .kilocalorie(), doubleValue: 620)
+                let energySample = HKQuantitySample(type: energyType, quantity: energyQty, start: now.addingTimeInterval(-7200), end: now.addingTimeInterval(-3600))
+                samples.append(energySample)
+            }
+
+            if let hr2Type = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+                let hr2Qty = HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 65)
+                let hr2Sample = HKQuantitySample(type: hr2Type, quantity: hr2Qty, start: now.addingTimeInterval(-1200), end: now.addingTimeInterval(-1200))
+                samples.append(hr2Sample)
+            }
+
+            if let vo2Type = HKQuantityType.quantityType(forIdentifier: .vo2Max) {
+                let vo2Qty = HKQuantity(unit: HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)).unitDivided(by: .minute()), doubleValue: 45)
+                let vo2Sample = HKQuantitySample(type: vo2Type, quantity: vo2Qty, start: now.addingTimeInterval(-300), end: now.addingTimeInterval(-300))
+                samples.append(vo2Sample)
+            }
+
+            self.healthStore.save(samples) { success, error in
+                print("[writeDebugMockData] Saved \(samples.count) samples, success=\(success)")
+                completion(success, error)
+            }
+        }
+    }
+
+    private func buildReadTypes() -> Set<HKObjectType> {
+        var types: Set<HKObjectType> = []
+        for id in anchoredTypes {
+            if let t = HKObjectType.quantityType(forIdentifier: id) {
+                types.insert(t)
+            }
+        }
+        types.insert(HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!)
+        types.insert(HKObjectType.workoutType())
+        return types
+    }
+
+    // MARK: - Debug: Direct HK Query (non-anchored, for testing)
+    func debugQueryAllData(completion: @escaping ([String: Any]) -> Void) {
+        let types: [(String, HKQuantityTypeIdentifier)] = [
+            ("bodyMass", .bodyMass),
+            ("restingHeartRate", .restingHeartRate),
+            ("stepCount", .stepCount),
+            ("activeEnergyBurned", .activeEnergyBurned),
+            ("heartRate", .heartRate),
+            ("vo2Max", .vo2Max),
+        ]
+        var results: [String: Any] = [:]
+        let group = DispatchGroup()
+        for (name, id) in types {
+            guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
+            group.enter()
+            let now = Date()
+            let startOfDay = Calendar.current.startOfDay(for: now)
+            let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
+            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { [weak self] _, samples, error in
+                defer { group.leave() }
+                guard let self = self else { return }
+                var entry: [String: Any] = ["count": samples?.count ?? 0]
+                if let samples = samples as? [HKQuantitySample], !samples.isEmpty {
+                    let latest = samples.last!
+                    entry["value"] = latest.quantity.doubleValue(for: self.debugUnitFor(type: type))
+                    entry["date"] = latest.endDate.description
+                }
+                results[name] = entry
+                print("[debugQuery] \(name): \(entry)")
+            }
+            healthStore.execute(query)
+        }
+        group.notify(queue: .main) {
+            print("[debugQuery] All results: \(results)")
+            completion(results)
+        }
+    }
+
+    private func debugUnitFor(type: HKQuantityType) -> HKUnit {
+        switch type.identifier {
+        case HKQuantityTypeIdentifier.bodyMass.rawValue: return .gramUnit(with: .kilo)
+        case HKQuantityTypeIdentifier.restingHeartRate.rawValue, HKQuantityTypeIdentifier.heartRate.rawValue: return HKUnit.count().unitDivided(by: .minute())
+        case HKQuantityTypeIdentifier.stepCount.rawValue: return .count()
+        case HKQuantityTypeIdentifier.activeEnergyBurned.rawValue: return .kilocalorie()
+        case HKQuantityTypeIdentifier.vo2Max.rawValue: return HKUnit.literUnit(with: .milli).unitDivided(by: .gramUnit(with: .kilo)).unitDivided(by: .minute())
+        default: return .count()
         }
     }
 }

@@ -4,32 +4,44 @@ import HealthKit
 
 class AppDelegate: NSObject, UIApplicationDelegate {
 
-    /// Set to true during UITests — signals to other components to skip Firebase/HealthKit.
-    /// Initialized BEFORE didFinishLaunching so it's safe for use in static/class initializers.
-    static var isUITesting: Bool = {
-        // Check at class initialization time (before didFinishLaunching)
-        return ProcessInfo.processInfo.environment["XCTest"] != nil ||
-               ProcessInfo.processInfo.environment["UITESTING"] == "true" ||
-               ProcessInfo.processInfo.arguments.contains("--uitesting")
-    }()
+    private var syncGroup = DispatchGroup()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        if AppDelegate.isUITesting {
-            print("[UITesting] Test mode — skipping Firebase and HealthKit initialization")
-            return true
-        }
-
-        // Normal mode — initialize Firebase
+        // Initialize Firebase
         FirebaseApp.configure()
 
-        // Request HealthKit authorization
-        HealthKitManager.shared.requestAuthorization { success, error in
-            if success {
-                print("HealthKit authorization granted")
-                HealthKitManager.shared.startBackgroundSync()
-            } else if let error = error {
-                print("HealthKit authorization failed: \(error.localizedDescription)")
+        // Request HealthKit authorization (skip in UITest mode — UI handles it)
+        if !CommandLine.arguments.contains("--uitesting") {
+            HealthKitManager.shared.requestAuthorization { success, error in
+                if success {
+                    print("[AppDelegate] HealthKit authorization granted")
+                    print("[AppDelegate] Writing mock HealthKit data...")
+                    HealthKitManager.shared.writeDebugMockData { mockSuccess, mockError in
+                        if mockSuccess {
+                            print("[AppDelegate] Mock data written successfully")
+                        } else {
+                            print("[AppDelegate] Mock data failed: \(mockError?.localizedDescription ?? "unknown")")
+                        }
+                        // Give HK a moment to index the saved samples
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            print("[AppDelegate] Starting sync with completion wait...")
+                            self.syncGroup.enter()
+                            HealthKitManager.shared.syncHealthData { syncSuccess in
+                                print("[AppDelegate] Sync completed: \(syncSuccess)")
+                                self.syncGroup.leave()
+                            }
+                        }
+                    }
+                } else if let error = error {
+                    print("[AppDelegate] HealthKit authorization failed: \(error.localizedDescription)")
+                }
+            }
+
+            // Keep app alive until sync completes (for UITest)
+            DispatchQueue.global().async {
+                self.syncGroup.wait()
+                print("[AppDelegate] Sync group complete — app can exit")
             }
         }
 

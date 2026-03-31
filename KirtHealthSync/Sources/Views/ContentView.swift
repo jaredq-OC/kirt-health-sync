@@ -1,10 +1,8 @@
 import SwiftUI
-import FirebaseCore
 import FirebaseFirestore
 
 struct ContentView: View {
     @StateObject private var viewModel = HealthDataViewModel()
-    @State private var showingMockDataInput = false
 
     var body: some View {
         NavigationView {
@@ -23,13 +21,25 @@ struct ContentView: View {
                     HStack { Text("Fat"); Spacer(); Text(String(format: "%.1f g", viewModel.nutritionData.fat)).foregroundColor(.secondary) }
                 }
 
-                Section(header: Text("Last Sync")) {
+                Section(header: Text("Debug")) {
                     Text(viewModel.lastSyncTime)
                         .foregroundColor(.secondary)
-                    Button("Sync Now") {
-                        viewModel.syncNow()
+                    HStack {
+                        Button("Reset Anchors") {
+                            HealthKitManager.shared.resetAllAnchors()
+                        }
+                        .foregroundColor(.orange)
+                        Button("Mock Direct") {
+                            viewModel.addMockDataDirectToFirestore()
+                        }
+                        .foregroundColor(.purple)
+                        .disabled(viewModel.isLoading)
+                        Spacer()
+                        Button("Sync Now") {
+                            viewModel.syncNow()
+                        }
+                        .disabled(viewModel.isLoading)
                     }
-                    .disabled(viewModel.isLoading)
                 }
 
                 Section(header: Text("Recent Workouts")) {
@@ -50,31 +60,8 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Kirt Health Sync")
-            .toolbar {
-                #if DEBUG
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingMockDataInput = true
-                    } label: {
-                        Image(systemName: "ladybug")
-                            .foregroundColor(.orange)
-                    }
-                }
-                #endif
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink(destination: SettingsView()) {
-                        Image(systemName: "gear")
-                    }
-                    .accessibilityIdentifier("settingsGearButton")
-                }
-            }
             .onAppear {
                 viewModel.loadData()
-            }
-            .sheet(isPresented: $showingMockDataInput) {
-                #if DEBUG
-                MockDataInputView()
-                #endif
             }
         }
     }
@@ -91,140 +78,100 @@ class HealthDataViewModel: ObservableObject {
     @Published var nutritionData: NutritionData = NutritionData()
     @Published var isLoading: Bool = false
 
-    private let isUITestMode: Bool
+    private let db = Firestore.firestore()
 
-    private let db: Firestore? = {
-        // Skip Firestore entirely in test/uitesting mode
-        if AppDelegate.isUITesting { return nil }
-        // Use ObjC helper that catches NSException from Firebase SDK
-        return FIRSafeInit.safeFirestore()
-    }()
-
-    init(isUITestMode: Bool = false) {
-        self.isUITestMode = isUITestMode || AppDelegate.isUITesting
-    }
-
-    private var todayDateString: String {
+    private var todayPath: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        let today = formatter.string(from: Date())
+        return "kirt/daily/\(today)"
     }
 
     func loadData() {
-        // In test mode, use mock data to allow UI testing
-        if isUITestMode {
-            loadMockData()
-            return
-        }
-        guard let db = db else { return }
-        let docPath = "kirt/daily/\(todayDateString)"
-        var docRef: DocumentReference? = nil
-        do {
-            docRef = try db.collection("kirt").document("daily").collection("daily").document(todayDateString)
-        } catch {
-            print("[HealthDataViewModel] Firestore document reference error: \(error)")
-            return
-        }
-        docRef?.getDocument { [weak self] snapshot, error in
-            guard let self = self else { return }
-            guard let doc = snapshot, doc.exists else {
-                let formatter = DateFormatter()
-                formatter.dateStyle = .short
-                formatter.timeStyle = .short
-                Task { @MainActor in self.lastSyncTime = formatter.string(from: Date()) }
+        db.document(todayPath).getDocument { [weak self] snapshot, error in
+            guard let self = self, let doc = snapshot, doc.exists else {
+                Task { @MainActor in self?.lastSyncTime = "No data yet" }
                 return
             }
 
-            let data = doc.data() ?? [:]
+            guard let data = doc.data() else { return }
+            let metrics = data["metrics"] as? [String: Any] ?? [:]
 
-            // Parse Phase 2 schema — metrics map
-            if let metrics = data["metrics"] as? [String: Any] {
-                if let steps = metrics["steps"] as? [String: Any],
-                   let total = steps["total"] as? Int {
-                    Task { @MainActor in self.todaySteps = total }
+            Task { @MainActor in
+                if let steps = metrics["steps"] as? [String: Any], let total = steps["total"] as? Int {
+                    self.todaySteps = total
                 }
-                if let sleep = metrics["sleep"] as? [String: Any],
-                   let totalMinutes = sleep["totalMinutes"] as? Int {
-                    Task { @MainActor in self.todaySleepMinutes = totalMinutes }
+                if let sleep = metrics["sleep"] as? [String: Any], let total = sleep["totalMinutes"] as? Int {
+                    self.todaySleepMinutes = total
                 }
-                if let weight = metrics["weight"] as? [String: Any],
-                   let value = weight["value"] as? Double {
-                    Task { @MainActor in self.latestWeight = value }
+                if let weight = metrics["weight"] as? [String: Any], let value = weight["value"] as? Double {
+                    self.latestWeight = value
                 }
-                if let heartRate = metrics["heartRate"] as? [String: Any],
-                   let resting = heartRate["resting"] as? Int {
-                    Task { @MainActor in self.latestRestingHR = resting }
+                if let hr = metrics["restingHeartRate"] as? [String: Any], let value = hr["resting"] as? Int {
+                    self.latestRestingHR = value
                 }
                 if let nutrition = metrics["nutrition"] as? [String: Any] {
-                    Task { @MainActor in
-                        self.nutritionData = NutritionData(
-                            calories: nutrition["dietaryEnergyConsumed"] as? Double ?? 0,
-                            protein: nutrition["dietaryProtein"] as? Double ?? 0,
-                            carbs: nutrition["dietaryCarbohydrates"] as? Double ?? 0,
-                            fat: nutrition["dietaryFatTotal"] as? Double ?? 0
-                        )
-                    }
+                    self.nutritionData = NutritionData(
+                        calories: nutrition["energy"] as? Double ?? 0,
+                        protein: nutrition["protein"] as? Double ?? 0,
+                        carbs: nutrition["carbs"] as? Double ?? 0,
+                        fat: nutrition["fat"] as? Double ?? 0
+                    )
                 }
                 if let workouts = metrics["workouts"] as? [[String: Any]] {
-                    Task { @MainActor in
-                        self.recentWorkouts = workouts.compactMap { w in
-                            guard let activityType = w["activityType"] as? String,
-                                  let duration = w["duration"] as? Double,
-                                  let energyBurned = w["energyBurned"] as? Double else { return nil }
-                            return WorkoutItem(activityType: activityType, duration: duration, energyBurned: energyBurned)
+                    for w in workouts {
+                        if let activity = w["type"] as? String,
+                           let duration = w["duration"] as? Double,
+                           let calories = w["calories"] as? Double {
+                            self.recentWorkouts.append(WorkoutItem(activityType: activity, duration: duration, energyBurned: calories))
                         }
                     }
                 }
-            }
 
-            // Fallback: syncedAt timestamp
-            if let syncedAt = data["syncedAt"] as? Timestamp {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .short
                 formatter.timeStyle = .short
-                Task { @MainActor in self.lastSyncTime = formatter.string(from: syncedAt.dateValue()) }
-            } else {
-                let formatter = DateFormatter()
-                formatter.dateStyle = .short
-                formatter.timeStyle = .short
-                Task { @MainActor in self.lastSyncTime = formatter.string(from: Date()) }
+                self.lastSyncTime = formatter.string(from: Date())
             }
         }
-    }
-
-    /// Loads mock data for UI testing — simulates what HealthKit + Firestore would return
-    func loadMockData() {
-        todaySteps = 8420
-        todaySleepMinutes = 420
-        latestWeight = 82.5
-        latestRestingHR = 58
-        nutritionData = NutritionData(calories: 2150, protein: 148.2, carbs: 215.5, fat: 72.8)
-        recentWorkouts = [
-            WorkoutItem(activityType: "Cycling", duration: 30 * 60, energyBurned: 620),
-            WorkoutItem(activityType: "Running", duration: 25 * 60, energyBurned: 340),
-        ]
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        lastSyncTime = formatter.string(from: Date())
     }
 
     func syncNow() {
-        if isUITestMode {
-            // Simulate sync in test mode
-            isLoading = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                self?.isLoading = false
-                self?.loadMockData()
-            }
-            return
-        }
         isLoading = true
-        HealthKitManager.shared.syncHealthData { [weak self] result in
+        HealthKitManager.shared.syncHealthData { [weak self] _ in
             Task { @MainActor in
                 self?.isLoading = false
                 self?.recentWorkouts.removeAll()
                 self?.loadData()
+            }
+        }
+    }
+
+    func addMockData() {
+        isLoading = true
+        HealthKitManager.shared.writeDebugMockData { [weak self] success, error in
+            Task { @MainActor in
+                self?.isLoading = false
+                if success {
+                    self?.lastSyncTime = "Mock data added — tap Sync Now"
+                } else {
+                    self?.lastSyncTime = "Mock data failed: \(error?.localizedDescription ?? "unknown")"
+                }
+            }
+        }
+    }
+
+    /// Writes mock data directly to Firestore (bypasses HK for UITest).
+    func addMockDataDirectToFirestore() {
+        isLoading = true
+        HealthKitManager.shared.writeMockDataDirectToFirestore { [weak self] success, error in
+            Task { @MainActor in
+                self?.isLoading = false
+                if success {
+                    self?.lastSyncTime = "Direct mock written — tap Sync Now"
+                } else {
+                    self?.lastSyncTime = "Direct mock failed: \(error?.localizedDescription ?? "unknown")"
+                }
             }
         }
     }
