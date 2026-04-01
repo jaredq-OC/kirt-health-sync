@@ -138,11 +138,19 @@ class HealthDataViewModel: ObservableObject {
 
     func syncNow() {
         isLoading = true
-        HealthKitManager.shared.syncHealthData { [weak self] _ in
+        lastSyncTime = "Syncing..."
+        HealthKitManager.shared.syncHealthData { [weak self] success in
             Task { @MainActor in
                 self?.isLoading = false
                 self?.recentWorkouts.removeAll()
-                self?.loadData()
+                if success {
+                    self?.lastSyncTime = "Synced"
+                    self?.loadData()
+                } else {
+                    // HK sync failed — likely auth not granted or HK unavailable
+                    // Check why
+                    self?.lastSyncTime = "Sync failed: check HK permission"
+                }
             }
         }
     }

@@ -16,22 +16,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             HealthKitManager.shared.requestAuthorization { success, error in
                 if success {
                     print("[AppDelegate] HealthKit authorization granted")
-                    // Sync real health data — do NOT write mock data here
-                    // Mock data is only written via the debug UI (MockDataInputView)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                        print("[AppDelegate] Starting sync with completion wait...")
-                        self.syncGroup.enter()
-                        HealthKitManager.shared.syncHealthData { syncSuccess in
-                            print("[AppDelegate] Sync completed: \(syncSuccess)")
-                            self.syncGroup.leave()
-                        }
-                    }
+                    // Start background sync + one-shot sync of real HK data
+                    // Mock data is ONLY for the debug UI, not automatic writes
+                    HealthKitManager.shared.startBackgroundSync()
                 } else if let error = error {
                     print("[AppDelegate] HealthKit authorization failed: \(error.localizedDescription)")
                 }
             }
 
-            // Keep app alive until sync completes (for background sync)
+            // Keep app alive until sync completes
             DispatchQueue.global().async {
                 self.syncGroup.wait()
                 print("[AppDelegate] Sync group complete — app can exit")

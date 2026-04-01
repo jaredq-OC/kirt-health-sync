@@ -209,7 +209,67 @@ class HealthKitManager {
 
     /// Main entry point. Runs anchored object queries for all types in parallel,
     /// accumulates results, then writes ONE Firestore document per sync.
+    /// Checks if the app has HK authorization for a given sample type.
+    /// Returns true if authorized for reading.
+    private func isAuthorized(for sampleType: HKSampleType) -> Bool {
+        let status = healthStore.authorizationStatus(for: sampleType)
+        if #available(iOS 15.0, *) {
+            return status != .notDetermined
+        } else {
+            return status == .sharingAuthorized
+        }
+    }
+
+    /// Checks if HK is available and authorization has been granted.
+    /// If not authorized, logs clear error messages for each authorization state.
+    private func checkHKAuthorization() -> (available: Bool, authorized: Bool) {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            print("[syncHealthData] HK not available on this device (simulator?)")
+            return (false, false)
+        }
+
+        // Check authorization for at least one primary read type
+        let primaryType = HKQuantityType.quantityType(forIdentifier: .stepCount)!
+        let status = healthStore.authorizationStatus(for: primaryType)
+
+        switch status {
+        case .notDetermined:
+            print("[syncHealthData] HK authorization NOT YET REQUESTED — requestAuthorization must be called first")
+            return (true, false)
+        case .sharingDenied:
+            print("[syncHealthData] HK authorization DENIED — user must grant access in Settings")
+            return (true, false)
+        case .sharingAuthorized:
+            print("[syncHealthData] HK authorization GRANTED")
+            return (true, true)
+        default:
+            print("[syncHealthData] HK authorization unknown state")
+            return (true, false)
+        }
+    }
+
+    /// Main entry point for syncing real HK data to Firestore.
+    /// Checks authorization first — if not authorized or HK unavailable, reports failure.
+    /// ONLY writes to Firestore if real HK data was successfully read.
     func syncHealthData(completion: ((Bool) -> Void)? = nil) {
+        let (hkAvailable, hkAuthorized) = checkHKAuthorization()
+
+        if !hkAvailable {
+            print("[syncHealthData] HK not available — skipping real data sync")
+            DispatchQueue.main.async {
+                completion?(false)
+            }
+            return
+        }
+
+        if !hkAuthorized {
+            print("[syncHealthData] HK not authorized — cannot read health data")
+            DispatchQueue.main.async {
+                completion?(false)
+            }
+            return
+        }
+
         // Reset accumulators for this sync window
         metricsQueue.sync {
             syncMetrics = [:]
@@ -249,7 +309,7 @@ class HealthKitManager {
         group.notify(queue: metricsQueue) { [weak self] in
             guard let self = self else { return }
             if self.skipFirestoreWrite {
-                print("[syncHealthData] Skipping Firestore write (mock data already written directly)")
+                print("[syncHealthData] Skipping Firestore write (debug flag set)")
                 self.skipFirestoreWrite = false
                 DispatchQueue.main.async {
                     completion?(true)
