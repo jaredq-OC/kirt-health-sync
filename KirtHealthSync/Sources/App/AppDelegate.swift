@@ -16,21 +16,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             HealthKitManager.shared.requestAuthorization { success, error in
                 if success {
                     print("[AppDelegate] HealthKit authorization granted")
-                    print("[AppDelegate] Writing mock HealthKit data...")
-                    HealthKitManager.shared.writeDebugMockData { mockSuccess, mockError in
-                        if mockSuccess {
-                            print("[AppDelegate] Mock data written successfully")
-                        } else {
-                            print("[AppDelegate] Mock data failed: \(mockError?.localizedDescription ?? "unknown")")
-                        }
-                        // Give HK a moment to index the saved samples
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            print("[AppDelegate] Starting sync with completion wait...")
-                            self.syncGroup.enter()
-                            HealthKitManager.shared.syncHealthData { syncSuccess in
-                                print("[AppDelegate] Sync completed: \(syncSuccess)")
-                                self.syncGroup.leave()
-                            }
+                    // Sync real health data — do NOT write mock data here
+                    // Mock data is only written via the debug UI (MockDataInputView)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        print("[AppDelegate] Starting sync with completion wait...")
+                        self.syncGroup.enter()
+                        HealthKitManager.shared.syncHealthData { syncSuccess in
+                            print("[AppDelegate] Sync completed: \(syncSuccess)")
+                            self.syncGroup.leave()
                         }
                     }
                 } else if let error = error {
@@ -38,7 +31,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 }
             }
 
-            // Keep app alive until sync completes (for UITest)
+            // Keep app alive until sync completes (for background sync)
             DispatchQueue.global().async {
                 self.syncGroup.wait()
                 print("[AppDelegate] Sync group complete — app can exit")

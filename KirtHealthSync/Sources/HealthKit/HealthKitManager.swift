@@ -113,6 +113,40 @@ class HealthKitManager {
         }
     }
 
+    /// Queries HK for any real health data within the last 24 hours.
+    /// Returns true only if real data exists — used to decide whether to write mock data.
+    func hasRecentHealthData(completion: @escaping (Bool) -> Void) {
+        let now = Date()
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
+
+        let sampleTypes: [HKSampleType] = [
+            HKQuantityType.quantityType(forIdentifier: .stepCount)!,
+            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
+            HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
+            HKObjectType.workoutType(),
+        ]
+
+        var foundRealData = false
+        let group = DispatchGroup()
+
+        for type in sampleTypes {
+            group.enter()
+            let query = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]) { query, samples, error in
+                defer { group.leave() }
+                guard let sample = samples?.first else { return }
+                if sample.endDate >= yesterday {
+                    foundRealData = true
+                }
+            }
+            healthStore.execute(query)
+        }
+
+        group.notify(queue: .main) {
+            completion(foundRealData)
+        }
+    }
+
     // MARK: - Background Sync
 
     func startBackgroundSync() {
